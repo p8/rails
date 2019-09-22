@@ -2,7 +2,7 @@
 
 class Treasure < ActiveRecord::Base
   has_and_belongs_to_many :parrots
-  belongs_to :looter, polymorphic: true
+  belongs_to :looter, polymorphic: true, autosave: true
   # No counter_cache option given
   belongs_to :ship
 

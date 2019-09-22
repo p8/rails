@@ -7,12 +7,13 @@ class Human < ActiveRecord::Base
   has_one :autosave_face, class_name: "Face", autosave: true, foreign_key: :human_id, inverse_of: :autosave_human
   has_one :polymorphic_face, class_name: "Face", as: :polymorphic_human, inverse_of: :polymorphic_human
   has_one :polymorphic_face_without_inverse, class_name: "Face", as: :poly_human_without_inverse
-  has_many :interests, inverse_of: :human
+  has_many :interests, inverse_of: :human, autosave: true
   has_many :interests_with_callbacks,
     class_name: "Interest",
     before_add: :add_called,
     after_add: :add_called,
     inverse_of: :human_with_callbacks
+
   has_many :polymorphic_interests,
     class_name: "Interest",
     as: :polymorphic_human,

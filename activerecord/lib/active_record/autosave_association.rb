@@ -232,6 +232,7 @@ module ActiveRecord
 
     # Reloads the attributes of the object as usual and clears <tt>marked_for_destruction</tt> flag.
     def reload(options = nil)
+      @marked_autosave_associations = nil
       @marked_for_destruction = false
       @destroyed_by_association = nil
       super
@@ -251,6 +252,15 @@ module ActiveRecord
     # Only useful if the <tt>:autosave</tt> option on the parent is enabled for this associated model.
     def marked_for_destruction?
       @marked_for_destruction
+    end
+
+    def mark_association_for_autosave(association_name)
+      @marked_autosave_associations ||= {}
+      @marked_autosave_associations[association_name] = true
+    end
+
+    def association_marked_for_autosave?(association_name)
+      @marked_autosave_associations && @marked_autosave_associations[association_name]
     end
 
     # Records the association that is being destroyed and destroying this
@@ -382,7 +392,7 @@ module ActiveRecord
       # ActiveRecord::Base after the AutosaveAssociation module, which it does by default.
       def save_collection_association(reflection)
         if association = association_instance_get(reflection.name)
-          autosave = reflection.options[:autosave]
+          autosave = reflection.options[:autosave] || association_marked_for_autosave?(reflection.name)
 
           # By saving the instance variable in a local variable,
           # we make the whole callback re-entrant.
@@ -439,7 +449,7 @@ module ActiveRecord
         record      = association && association.load_target
 
         if record && !record.destroyed?
-          autosave = reflection.options[:autosave]
+          autosave = reflection.options[:autosave] || association_marked_for_autosave?(reflection.name)
 
           if autosave && record.marked_for_destruction?
             record.destroy
@@ -482,7 +492,7 @@ module ActiveRecord
 
         record = association.load_target
         if record && !record.destroyed?
-          autosave = reflection.options[:autosave]
+          autosave = reflection.options[:autosave] || association_marked_for_autosave?(reflection.name)
 
           if autosave && record.marked_for_destruction?
             self[reflection.foreign_key] = nil

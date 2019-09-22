@@ -373,8 +373,8 @@ class TestNestedAttributesOnAHasOneAssociation < ActiveRecord::TestCase
     assert_nil @pirate.reload.ship
   end
 
-  def test_should_automatically_enable_autosave_on_the_association
-    assert Pirate.reflect_on_association(:ship).options[:autosave]
+  def test_should_not_automatically_enable_autosave_on_the_association
+    assert_nil Developer.reflect_on_association(:projects).options[:autosave]
   end
 
   def test_should_accept_update_only_option

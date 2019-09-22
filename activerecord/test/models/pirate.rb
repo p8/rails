@@ -3,14 +3,14 @@
 class Pirate < ActiveRecord::Base
   belongs_to :parrot, validate: true
   belongs_to :non_validated_parrot, class_name: "Parrot"
-  has_and_belongs_to_many :parrots, -> { order("parrots.id ASC") }, validate: true
+  has_and_belongs_to_many :parrots, -> { order("parrots.id ASC") }, validate: true, autosave: true
   has_and_belongs_to_many :non_validated_parrots, class_name: "Parrot"
-  has_and_belongs_to_many :parrots_with_method_callbacks, class_name: "Parrot",
+  has_and_belongs_to_many :parrots_with_method_callbacks, class_name: "Parrot", autosave: true,
     before_add: :log_before_add,
     after_add: :log_after_add,
     before_remove: :log_before_remove,
     after_remove: :log_after_remove
-  has_and_belongs_to_many :parrots_with_proc_callbacks, class_name: "Parrot",
+  has_and_belongs_to_many :parrots_with_proc_callbacks, class_name: "Parrot", autosave: true,
     before_add: proc { |p, pa| p.ship_log << "before_adding_proc_parrot_#{pa.id || '<new>'}" },
     after_add: proc { |p, pa| p.ship_log << "after_adding_proc_parrot_#{pa.id || '<new>'}" },
     before_remove: proc { |p, pa| p.ship_log << "before_removing_proc_parrot_#{pa.id}" },
@@ -26,21 +26,21 @@ class Pirate < ActiveRecord::Base
   has_many :treasures, as: :looter, extend: PostTreasuresExtension
   has_many :treasure_estimates, through: :treasures, source: :price_estimates
 
-  has_one :ship
-  has_one :update_only_ship, class_name: "Ship"
+  has_one :ship, autosave: true
+  has_one :update_only_ship, class_name: "Ship", autosave: true
   has_one :non_validated_ship, class_name: "Ship"
-  has_many :birds, -> { order("birds.id ASC") }
-  has_many :birds_with_method_callbacks, class_name: "Bird",
+  has_many :birds, -> { order("birds.id ASC") }, autosave: true
+  has_many :birds_with_method_callbacks, class_name: "Bird", autosave: true,
     before_add: :log_before_add,
     after_add: :log_after_add,
     before_remove: :log_before_remove,
     after_remove: :log_after_remove
-  has_many :birds_with_proc_callbacks, class_name: "Bird",
+  has_many :birds_with_proc_callbacks, class_name: "Bird", autosave: true,
     before_add: proc { |p, b| p.ship_log << "before_adding_proc_bird_#{b.id || '<new>'}" },
     after_add: proc { |p, b| p.ship_log << "after_adding_proc_bird_#{b.id || '<new>'}" },
     before_remove: proc { |p, b| p.ship_log << "before_removing_proc_bird_#{b.id}" },
     after_remove: proc { |p, b| p.ship_log << "after_removing_proc_bird_#{b.id}" }
-  has_many :birds_with_reject_all_blank, class_name: "Bird"
+  has_many :birds_with_reject_all_blank, class_name: "Bird", autosave: true
 
   has_one :foo_bulb, -> { where name: "foo" }, foreign_key: :car_id, class_name: "Bulb"
 

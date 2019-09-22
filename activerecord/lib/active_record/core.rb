@@ -747,6 +747,7 @@ module ActiveRecord
         @readonly                 = false
         @previously_new_record    = false
         @destroyed                = false
+        @marked_autosave_associations = nil
         @marked_for_destruction   = false
         @destroyed_by_association = nil
         @_start_transaction_state = nil

@@ -298,6 +298,11 @@ class TestDefaultAutosaveAssociationOnAHasOneAssociation < ActiveRecord::TestCas
     eye.update(iris_attributes: { color: "blue" })
     assert_equal [false, false, false, false], eye.after_save_callbacks_stack
   end
+
+  def test_callbacks_firing_order_on_create
+    eye = Eye.create(iris_attributes: { color: "honey", eye_attributes: {} })
+    assert_equal [true, false], eye.after_create_callbacks_stack
+  end
 end
 
 class TestDefaultAutosaveAssociationOnABelongsToAssociation < ActiveRecord::TestCase

@@ -338,9 +338,6 @@ module ActiveRecord
 
         attr_names.each do |association_name|
           if reflection = _reflect_on_association(association_name)
-            reflection.autosave = true
-            define_autosave_validation_callbacks(reflection)
-
             nested_attributes_options = self.nested_attributes_options.dup
             nested_attributes_options[association_name.to_sym] = options
             self.nested_attributes_options = nested_attributes_options
@@ -369,6 +366,7 @@ module ActiveRecord
           generated_association_methods.module_eval <<-eoruby, __FILE__, __LINE__ + 1
             silence_redefinition_of_method :#{association_name}_attributes=
             def #{association_name}_attributes=(attributes)
+              mark_association_for_autosave(:#{association_name})
               assign_nested_attributes_for_#{type}_association(:#{association_name}, attributes)
             end
           eoruby
