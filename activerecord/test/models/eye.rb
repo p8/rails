@@ -36,4 +36,5 @@ end
 
 class Iris < ActiveRecord::Base
   belongs_to :eye
+  accepts_nested_attributes_for :eye
 end

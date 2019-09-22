@@ -4,12 +4,13 @@ class Man < ActiveRecord::Base
   has_one :face, inverse_of: :man
   has_one :polymorphic_face, class_name: "Face", as: :polymorphic_man, inverse_of: :polymorphic_man
   has_one :polymorphic_face_without_inverse, class_name: "Face", as: :poly_man_without_inverse
-  has_many :interests, inverse_of: :man
+  has_many :interests, inverse_of: :man, autosave: true
   has_many :interests_with_callbacks,
     class_name: "Interest",
     before_add: :add_called,
     after_add: :add_called,
-    inverse_of: :man_with_callbacks
+    inverse_of: :man_with_callbacks,
+
   has_many :polymorphic_interests,
     class_name: "Interest",
     as: :polymorphic_man,
