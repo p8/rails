@@ -16,9 +16,15 @@ module ActionController
 
   class RoutingError < ActionControllerError #:nodoc:
     attr_reader :failures
+    include ActiveSupport::ActionableError
     def initialize(message, failures = [])
       super(message)
       @failures = failures
+    end
+
+    action "Generate scaffold" do |options|
+      name = options[:location][1..-1].singularize
+      Rails::Command.invoke 'generate', ['scaffold', name, '--skip']
     end
   end
 

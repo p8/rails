@@ -6,7 +6,8 @@
       <%= button_to action, ActionDispatch::ActionableExceptions.endpoint, params: {
         error: exception.class.name,
         action: action,
-        location: request.path
+        location: request.path,
+        options: request.params.merge(location: request.path)
       } %>
     <% end %>
   </div>

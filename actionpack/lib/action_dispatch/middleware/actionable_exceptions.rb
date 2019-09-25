@@ -15,8 +15,7 @@ module ActionDispatch
     def call(env)
       request = ActionDispatch::Request.new(env)
       return @app.call(env) unless actionable_request?(request)
-
-      ActiveSupport::ActionableError.dispatch(request.params[:error].to_s.safe_constantize, request.params[:action])
+      ActiveSupport::ActionableError.dispatch(request.params[:error].to_s.safe_constantize, request.params[:action], request.params[:options])
 
       redirect_to request.params[:location]
     end
