@@ -141,6 +141,8 @@ module ActiveModel
     # Clears dirty data and moves +changes+ to +previous_changes+ and
     # +mutations_from_database+ to +mutations_before_last_save+ respectively.
     def changes_applied
+      puts "Changes applied to #{self.class.name}"
+      #raise if self.class.name.to_s == 'Ship'
       unless defined?(@attributes)
         mutations_from_database.finalize_changes
       end

@@ -3,7 +3,7 @@
 class Ship < ActiveRecord::Base
   self.record_timestamps = false
 
-  belongs_to :pirate, autosave: true
+  belongs_to :pirate
   belongs_to :update_only_pirate, class_name: "Pirate", autosave: true
   belongs_to :developer, dependent: :destroy
   has_many :parts, class_name: "ShipPart", autosave: true

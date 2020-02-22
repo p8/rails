@@ -49,6 +49,7 @@ module ActiveRecord
       # +to+ When passed, this method will return false unless the value was
       # changed to the given value
       def saved_change_to_attribute?(attr_name, **options)
+        puts "saved_change_to_attribute #{attr_name}, #{options.inspect}"
         mutations_before_last_save.changed?(attr_name.to_s, **options)
       end
 

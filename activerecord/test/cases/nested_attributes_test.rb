@@ -11,6 +11,8 @@ require "models/man"
 require "models/interest"
 require "models/owner"
 require "models/pet"
+require "models/developer"
+require "models/eye"
 require "active_support/hash_with_indifferent_access"
 
 class TestNestedAttributesInGeneral < ActiveRecord::TestCase
@@ -1115,5 +1117,91 @@ class TestNestedAttributesWithExtend < ActiveRecord::TestCase
     pirate = Pirate.create!(catchphrase: "Don' botharrr talkin' like one, savvy?")
     pirate.treasures_attributes = [{ id: nil }]
     assert_equal "from extension", pirate.treasures[0].name
+  end
+end
+
+class TestNestedAttributesWithExtend2 < ActiveRecord::TestCase
+
+  Pirate.class_eval do
+    before_save :test
+    after_save :test2
+
+    def test
+      puts "before save #{self.class.name} #{changes}"
+    end
+
+    def test2
+      puts "after save #{self.class.name} #{saved_changes}"
+    end
+  end
+
+  Ship.class_eval do
+    before_save :test
+    after_save :test2
+
+    def test
+      puts "before save #{self.class.name} #{changes}"
+    end
+
+    def test2
+      puts "after save #{self.class.name} #{saved_changes}"
+    end
+  end
+
+
+  def setup
+    Pirate.has_one :ship, autosave: nil
+    Ship.belongs_to :pirate, autosave: nil
+  end
+
+  def teardown
+    Pirate.has_one :ship, autosave: true
+    Ship.belongs_to :pirate, autosave: true
+  end
+  #def test_callbacks_firing_order_on_create
+    #eye = Eye.create(iris_attributes: { color: "honey" })
+    #assert_equal [true, false], eye.after_create_callbacks_stack
+  #end
+
+  #def test_callbacks_firing_order_on_update
+    #eye = Eye.create(iris_attributes: { color: "honey" })
+    #eye.update(iris_attributes: { color: "green" })
+    #assert_equal [true, false], eye.after_update_callbacks_stack
+  #end
+
+  #def test_callbacks_firing_order_on_save
+    #eye = Eye.create(iris_attributes: { color: "honey" })
+    #assert_equal [false, false], eye.after_save_callbacks_stack
+
+    #eye.update(iris_attributes: { color: "blue" })
+    #assert_equal [false, false, false, false], eye.after_save_callbacks_stack
+  #end
+
+  #def test_callbacks_firing_order_on_create
+    #eye = Eye.create(iris_attributes: { color: "honey", eye_attributes: {} })
+    #assert_equal [true, false], eye.after_create_callbacks_stack
+  #end
+
+  def test_child_is_saved_only_once_if_child_is_inverse_of_parent
+    ship_reflection = Ship.reflect_on_association(:pirate)
+    pirate_reflection = Pirate.reflect_on_association(:ship)
+    assert_equal ship_reflection, pirate_reflection.inverse_of, "The pirate reflection's inverse should be the ship reflection"
+
+    ship = Ship.new(name: "Nights Dirty Lightning",
+                    pirate_attributes: { catchphrase: "Aye" })
+    pirate = ship.pirate
+    require 'byebug'; debugger
+    ship.save!
+    assert_equal([nil, pirate.id], pirate.previous_changes["id"])
+    assert_equal([nil, ship.id],  ship.previous_changes["id"])
+  end
+
+  def test_children_are_saved_only_once_if_child_is_inverse_of_parent
+    pirate = Pirate.new(catchphrase: "Aye",
+                        ship_attributes: { name: "Nights Dirty Lightning" })
+    ship = pirate.ship
+    pirate.save!
+    assert_equal([nil, pirate.id], pirate.previous_changes["id"])
+    assert_equal([nil, ship.id],  ship.previous_changes["id"])
   end
 end

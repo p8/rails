@@ -448,7 +448,8 @@ module ActiveRecord
 
         if record && !record.destroyed?
           autosave = reflection.options[:autosave] || association_marked_for_autosave?(reflection.name)
-
+          require 'byebug'; debugger
+          puts "save #{reflection.name}"
           if autosave && record.marked_for_destruction?
             record.destroy
           elsif autosave != false
@@ -489,6 +490,7 @@ module ActiveRecord
       def save_belongs_to_association(reflection)
         association = association_instance_get(reflection.name)
         return unless association && association.loaded? && !association.stale_target?
+        puts "save #{reflection.name}"
 
         record = association.load_target
         if record && !record.destroyed?

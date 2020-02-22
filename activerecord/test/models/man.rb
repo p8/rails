@@ -9,7 +9,7 @@ class Man < ActiveRecord::Base
     class_name: "Interest",
     before_add: :add_called,
     after_add: :add_called,
-    inverse_of: :man_with_callbacks,
+    inverse_of: :man_with_callbacks
 
   has_many :polymorphic_interests,
     class_name: "Interest",
