@@ -47,6 +47,17 @@ module ActiveSupport
     end
 
     def run_load_hooks(name, base = Object)
+      rails_frameworks = [
+        :action_view,
+        :action_cable,
+        :action_controller,
+        :active_job,
+        :action_mailer,
+        :active_record
+      ]
+      if rails_frameworks.include?(name) && !@loaded[:after_initialize].any?
+        raise "Framework called to early: #{name}"
+      end
       @loaded[name] << base
       @load_hooks[name].each do |hook, options|
         execute_hook(name, base, options, hook)

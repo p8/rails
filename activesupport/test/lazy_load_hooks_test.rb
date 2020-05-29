@@ -174,6 +174,13 @@ class LazyLoadHooksTest < ActiveSupport::TestCase
     assert_equal "Hulk Hogan", context.second_wrestler
   end
 
+  def test_prematurely_loading_a_framework
+    error = assert_raises do
+      ActiveSupport.run_load_hooks(:active_record)
+    end
+    assert_equal "Framework called to early: active_record", error.message
+  end
+
 private
   def incr_amt
     5
