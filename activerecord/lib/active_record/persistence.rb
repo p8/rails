@@ -659,6 +659,7 @@ module ActiveRecord
     #
     # * \Validations are skipped.
     # * \Callbacks are skipped.
+    # * It's not wrapped in a transaction.
     # * +updated_at+/+updated_on+ are not updated.
     # * However, attributes are serialized with the same rules as ActiveRecord::Relation#update_all
     #
