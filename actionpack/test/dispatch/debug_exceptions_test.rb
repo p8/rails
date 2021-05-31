@@ -318,20 +318,18 @@ class DebugExceptionsTest < ActionDispatch::IntegrationTest
     assert_match(/ActionDispatch::Http::MimeNegotiation::InvalidType/, body)
   end
 
-  if defined?(DidYouMean) && DidYouMean.respond_to?(:correct_error)
-    test "rescue with suggestions" do
-      @app = DevelopmentApp
+  test "rescue with suggestions" do
+    @app = DevelopmentApp
 
-      get "/not_found", headers: { "action_dispatch.show_exceptions" => true }
-      assert_response 404
-      assert_select("b", /Did you mean\?/)
-      assert_select("li", "hello")
+    get "/not_found", headers: { "action_dispatch.show_exceptions" => true }
+    assert_response 404
+    assert_select("b", /Did you mean\?/)
+    assert_select("li", "hello")
 
-      get "/parameter_missing", headers: { "action_dispatch.show_exceptions" => true }
-      assert_response 400
-      assert_select("b", /Did you mean\?/)
-      assert_select("li", "valid_param_key")
-    end
+    get "/parameter_missing", headers: { "action_dispatch.show_exceptions" => true }
+    assert_response 400
+    assert_select("b", /Did you mean\?/)
+    assert_select("li", "valid_param_key")
   end
 
   test "rescue with HTML format for HTML API request" do

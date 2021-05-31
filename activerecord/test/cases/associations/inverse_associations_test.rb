@@ -336,15 +336,13 @@ class InverseHasOneTests < ActiveRecord::TestCase
     assert_raise(ActiveRecord::InverseOfAssociationNotFoundError) { Human.first.confused_face }
   end
 
-  if defined?(DidYouMean) && DidYouMean.respond_to?(:correct_error)
-    def test_trying_to_use_inverses_that_dont_exist_should_have_suggestions_for_fix
-      error = assert_raise(ActiveRecord::InverseOfAssociationNotFoundError) {
-        Human.first.confused_face
-      }
+  def test_trying_to_use_inverses_that_dont_exist_should_have_suggestions_for_fix
+    error = assert_raise(ActiveRecord::InverseOfAssociationNotFoundError) {
+      Human.first.confused_face
+    }
 
-      assert_match "Did you mean?", error.message
-      assert_equal "super_human", error.corrections.first
-    end
+    assert_match "Did you mean?", error.message
+    assert_equal "super_human", error.corrections.first
   end
 end
 
@@ -754,15 +752,13 @@ class InverseBelongsToTests < ActiveRecord::TestCase
     assert_raise(ActiveRecord::InverseOfAssociationNotFoundError) { Face.first.puzzled_human }
   end
 
-  if defined?(DidYouMean) && DidYouMean.respond_to?(:correct_error)
-    def test_trying_to_use_inverses_that_dont_exist_should_have_suggestions_for_fix
-      error = assert_raise(ActiveRecord::InverseOfAssociationNotFoundError) {
-        Face.first.puzzled_human
-      }
+  def test_trying_to_use_inverses_that_dont_exist_should_have_suggestions_for_fix
+    error = assert_raise(ActiveRecord::InverseOfAssociationNotFoundError) {
+      Face.first.puzzled_human
+    }
 
-      assert_match "Did you mean?", error.message
-      assert_equal "confused_face", error.corrections.first
-    end
+    assert_match "Did you mean?", error.message
+    assert_equal "confused_face", error.corrections.first
   end
 
   def test_building_has_many_parent_association_inverses_one_record
