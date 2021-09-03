@@ -18,14 +18,20 @@ Locations for Initialization Code
 Rails offers four standard spots to place initialization code:
 
 * `config/application.rb`
-* Environment-specific configuration files
-* Initializers
-* After-initializers
+* Environment-specific configuration files in `config/environments/`
+* Initializer files in `config/initializers/`
+* Initialization events
 
-Running Code Before Rails
--------------------------
+### Running Code Before Rails
 
 In the rare event that your application needs to run some code before Rails itself is loaded, put it above the call to `require "rails/all"` in `config/application.rb`.
+
+```ruby
+# config/application.rb
+...
+require 'my_special_thing'
+require 'rails/all'
+```
 
 Configuring Rails Components
 ----------------------------
