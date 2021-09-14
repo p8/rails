@@ -24,6 +24,11 @@ module ActiveRecord
 
         assert_equal 1, model.foo
       end
+
+      test "serializable? returns false for StatementCache::Substitute" do
+        type = Type::Integer.new
+        assert_equal false, type.serializable?(ActiveRecord::StatementCache::Substitute.new)
+      end
     end
   end
 end
