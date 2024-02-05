@@ -1,11 +1,12 @@
 # frozen_string_literal: true
 
 require "active_support/core_ext/string/inflections"
-require "active_support/per_thread_registry"
 
 module ActiveSupport
   module Cache
     module Strategy
+      # = Local \Cache \Strategy
+      #
       # Caches that implement LocalCache will be backed by an in-memory cache for the
       # duration of a block. Repeated calls to the cache for the same key will hit the
       # in-memory cache for faster access.
@@ -13,25 +14,22 @@ module ActiveSupport
         autoload :Middleware, "active_support/cache/strategy/local_cache_middleware"
 
         # Class for storing and registering the local caches.
-        class LocalCacheRegistry # :nodoc:
-          extend ActiveSupport::PerThreadRegistry
-
-          def initialize
-            @registry = {}
-          end
+        module LocalCacheRegistry # :nodoc:
+          extend self
 
           def cache_for(local_cache_key)
-            @registry[local_cache_key]
+            registry = ActiveSupport::IsolatedExecutionState[:active_support_local_cache_registry] ||= {}
+            registry[local_cache_key]
           end
 
           def set_cache_for(local_cache_key, value)
-            @registry[local_cache_key] = value
+            registry = ActiveSupport::IsolatedExecutionState[:active_support_local_cache_registry] ||= {}
+            registry[local_cache_key] = value
           end
-
-          def self.set_cache_for(l, v); instance.set_cache_for l, v; end
-          def self.cache_for(l); instance.cache_for l; end
         end
 
+        # = Local \Cache \Store
+        #
         # Simple memory backed cache. This cache is not thread safe and is intended only
         # for serving as a temporary memory cache for a single thread.
         class LocalStore
@@ -78,35 +76,43 @@ module ActiveSupport
             local_cache_key)
         end
 
-        def clear(**options) # :nodoc:
+        def clear(options = nil) # :nodoc:
           return super unless cache = local_cache
           cache.clear(options)
           super
         end
 
-        def cleanup(**options) # :nodoc:
+        def cleanup(options = nil) # :nodoc:
           return super unless cache = local_cache
-          cache.clear
+          cache.clear(options)
           super
         end
 
         def delete_matched(matcher, options = nil) # :nodoc:
           return super unless cache = local_cache
-          cache.clear
+          cache.clear(options)
           super
         end
 
-        def increment(name, amount = 1, **options) # :nodoc:
+        def increment(name, amount = 1, options = nil) # :nodoc:
           return super unless local_cache
           value = bypass_local_cache { super }
-          write_cache_value(name, value, raw: true, **options)
+          if options
+            write_cache_value(name, value, raw: true, **options)
+          else
+            write_cache_value(name, value, raw: true)
+          end
           value
         end
 
-        def decrement(name, amount = 1, **options) # :nodoc:
+        def decrement(name, amount = 1, options = nil) # :nodoc:
           return super unless local_cache
           value = bypass_local_cache { super }
-          write_cache_value(name, value, raw: true, **options)
+          if options
+            write_cache_value(name, value, raw: true, **options)
+          else
+            write_cache_value(name, value, raw: true)
+          end
           value
         end
 
@@ -125,14 +131,20 @@ module ActiveSupport
             end
           end
 
-          def read_multi_entries(keys, **options)
+          def read_multi_entries(names, **options)
             return super unless local_cache
 
-            local_entries = local_cache.read_multi_entries(keys)
-            missed_keys = keys - local_entries.keys
+            keys_to_names = names.index_by { |name| normalize_key(name, options) }
 
-            if missed_keys.any?
-              local_entries.merge!(super(missed_keys, **options))
+            local_entries = local_cache.read_multi_entries(keys_to_names.keys)
+            local_entries.transform_keys! { |key| keys_to_names[key] }
+            local_entries.transform_values! do |payload|
+              deserialize_entry(payload, **options)&.value
+            end
+            missed_names = names - local_entries.keys
+
+            if missed_names.any?
+              local_entries.merge!(super(missed_names, **options))
             else
               local_entries
             end

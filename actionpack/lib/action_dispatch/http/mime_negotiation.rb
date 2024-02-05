@@ -16,7 +16,6 @@ module ActionDispatch
 
       included do
         mattr_accessor :ignore_accept_header, default: false
-        cattr_accessor :return_only_media_type_on_content_type, default: false
       end
 
       # The MIME type of the HTTP request, such as Mime[:xml].
@@ -30,19 +29,6 @@ module ActionDispatch
           set_header k, v
         rescue ::Mime::Type::InvalidMimeType => e
           raise InvalidType, e.message
-        end
-      end
-
-      def content_type
-        if self.class.return_only_media_type_on_content_type
-          ActiveSupport::Deprecation.warn(
-            "Rails 7.1 will return Content-Type header without modification." \
-            " If you want just the MIME type, please use `#media_type` instead."
-          )
-
-          content_mime_type&.to_s
-        else
-          super
         end
       end
 
@@ -72,7 +58,7 @@ module ActionDispatch
       #   GET /posts/5.xhtml | request.format => Mime[:html]
       #   GET /posts/5       | request.format => Mime[:html] or Mime[:js], or request.accepts.first
       #
-      def format(view_path = [])
+      def format(_view_path = nil)
         formats.first || Mime::NullType.instance
       end
 
@@ -81,7 +67,7 @@ module ActionDispatch
           v = if params_readable?
             Array(Mime[parameters[:format]])
           elsif use_accept_header && valid_accept_header
-            accepts
+            accepts.dup
           elsif extension_format = format_from_path_extension
             [extension_format]
           elsif xhr?
@@ -90,7 +76,7 @@ module ActionDispatch
             [Mime[:html]]
           end
 
-          v = v.select do |format|
+          v.select! do |format|
             format.symbol || format.ref == "*/*"
           end
 
@@ -132,8 +118,8 @@ module ActionDispatch
       # Sets the \formats by string extensions. This differs from #format= by allowing you
       # to set multiple, ordered formats, which is useful when you want to have a fallback.
       #
-      # In this example, the :iphone format will be used if it's available, otherwise it'll fallback
-      # to the :html format.
+      # In this example, the +:iphone+ format will be used if it's available, otherwise it'll fall back
+      # to the +:html+ format.
       #
       #   class ApplicationController < ActionController::Base
       #     before_action :adjust_format_for_iphone_with_html_fallback
@@ -172,22 +158,22 @@ module ActionDispatch
         # in which case we assume you're a browser and send HTML.
         BROWSER_LIKE_ACCEPTS = /,\s*\*\/\*|\*\/\*\s*,/
 
-        def params_readable? # :doc:
+        def params_readable?
           parameters[:format]
         rescue *RESCUABLE_MIME_FORMAT_ERRORS
           false
         end
 
-        def valid_accept_header # :doc:
+        def valid_accept_header
           (xhr? && (accept.present? || content_mime_type)) ||
             (accept.present? && !accept.match?(BROWSER_LIKE_ACCEPTS))
         end
 
-        def use_accept_header # :doc:
+        def use_accept_header
           !self.class.ignore_accept_header
         end
 
-        def format_from_path_extension # :doc:
+        def format_from_path_extension
           path = get_header("action_dispatch.original_path") || get_header("PATH_INFO")
           if match = path && path.match(/\.(\w+)\z/)
             Mime[match.captures.first]

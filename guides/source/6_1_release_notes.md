@@ -300,7 +300,7 @@ Please refer to the [Changelog][active-record] for detailed changes.
 
     ```ruby
     User.where.not(name: "Jon", role: "admin")
-    # SELECT * FROM users WHERE NOT (name == 'Jon' AND role == 'admin')
+    # SELECT * FROM users WHERE NOT (name = 'Jon' AND role = 'admin')
     ```
 
 *   To use the new per-database connection handling applications must change
@@ -440,6 +440,8 @@ Please refer to the [Changelog][action-mailbox] for detailed changes.
 ### Removals
 
 ### Deprecations
+
+*   Deprecate `Rails.application.credentials.action_mailbox.api_key` and `MAILGUN_INGRESS_API_KEY` in favor of `Rails.application.credentials.action_mailbox.signing_key` and `MAILGUN_INGRESS_SIGNING_KEY`.
 
 ### Notable changes
 

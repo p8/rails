@@ -67,8 +67,8 @@ module ApplicationTests
       def db_migrate_and_schema_cache_dump
         Dir.chdir(app_path) do
           generate_models_for_animals
-          rails "db:migrate"
-          rails "db:schema:cache:dump"
+          rails "db:migrate", "--trace"
+          rails "db:schema:cache:dump", "--trace"
           assert File.exist?("db/schema_cache.yml")
           assert File.exist?("db/animals_schema_cache.yml")
         end
@@ -115,34 +115,37 @@ module ApplicationTests
         end
       end
 
-      def db_migrate_and_schema_dump_and_load_one_database(format, database)
+      def db_migrate_and_schema_dump_and_load_one_database(database, schema_format)
+        add_to_config "config.active_record.schema_format = :#{schema_format}"
+        require "#{app_path}/config/environment"
+
         Dir.chdir(app_path) do
           generate_models_for_animals
-          rails "db:migrate:#{database}", "db:#{format}:dump:#{database}"
+          rails "db:migrate:#{database}", "db:schema:dump:#{database}"
 
-          if format == "schema"
+          if schema_format == "ruby"
             if database == "primary"
-              schema_dump = File.read("db/#{format}.rb")
-              assert_not(File.exist?("db/animals_#{format}.rb"))
+              schema_dump = File.read("db/schema.rb")
+              assert_not(File.exist?("db/animals_schema.rb"))
               assert_match(/create_table "books"/, schema_dump)
             else
-              assert_not(File.exist?("db/#{format}.rb"))
-              schema_dump_animals = File.read("db/animals_#{format}.rb")
+              assert_not(File.exist?("db/schema.rb"))
+              schema_dump_animals = File.read("db/animals_schema.rb")
               assert_match(/create_table "dogs"/, schema_dump_animals)
             end
           else
             if database == "primary"
-              schema_dump = File.read("db/#{format}.sql")
-              assert_not(File.exist?("db/animals_#{format}.sql"))
+              schema_dump = File.read("db/structure.sql")
+              assert_not(File.exist?("db/animals_structure.sql"))
               assert_match(/CREATE TABLE (?:IF NOT EXISTS )?"books"/, schema_dump)
             else
-              assert_not(File.exist?("db/#{format}.sql"))
-              schema_dump_animals = File.read("db/animals_#{format}.sql")
+              assert_not(File.exist?("db/structure.sql"))
+              schema_dump_animals = File.read("db/animals_structure.sql")
               assert_match(/CREATE TABLE (?:IF NOT EXISTS )?"dogs"/, schema_dump_animals)
             end
           end
 
-          rails "db:#{format}:load:#{database}"
+          rails "db:schema:load:#{database}"
 
           ar_tables = lambda { rails("runner", "p ActiveRecord::Base.connection.tables").strip }
           animals_tables = lambda { rails("runner", "p AnimalsBase.connection.tables").strip }
@@ -301,13 +304,15 @@ module ApplicationTests
             down_output = rails("db:migrate:down:#{namespace}", "VERSION=#{version}")
             up_output = rails("db:migrate:up:#{namespace}", "VERSION=#{version}")
           else
-            assert_raises RuntimeError, /You're using a multiple database application/ do
+            exception = assert_raises RuntimeError do
               down_output = rails("db:migrate:down", "VERSION=#{version}")
             end
+            assert_match("You're using a multiple database application", exception.message)
 
-            assert_raises RuntimeError, /You're using a multiple database application/ do
+            exception = assert_raises RuntimeError do
               up_output = rails("db:migrate:up", "VERSION=#{version}")
             end
+            assert_match("You're using a multiple database application", exception.message)
           end
 
           case namespace
@@ -330,9 +335,10 @@ module ApplicationTests
           if namespace
             rollback_output = rails("db:rollback:#{namespace}")
           else
-            assert_raises RuntimeError, /You're using a multiple database application/ do
+            exception = assert_raises RuntimeError do
               rollback_output = rails("db:rollback")
             end
+            assert_match("You're using a multiple database application", exception.message)
           end
 
           case namespace
@@ -355,9 +361,10 @@ module ApplicationTests
           if namespace
             redo_output = rails("db:migrate:redo:#{namespace}")
           else
-            assert_raises RuntimeError, /You're using a multiple database application/ do
+            exception = assert_raises RuntimeError do
               redo_output = rails("db:migrate:redo")
             end
+            assert_match("You're using a multiple database application", exception.message)
           end
 
           case namespace
@@ -436,6 +443,9 @@ module ApplicationTests
         require "#{app_path}/config/environment"
         ActiveRecord::Base.configurations.configs_for(env_name: Rails.env).each do |db_config|
           db_create_and_drop_namespace db_config.name, db_config.database
+        ensure
+          # secondary databases might have been created by check_protected_environments task
+          rails("db:drop:all")
         end
       end
 
@@ -511,6 +521,11 @@ module ApplicationTests
           end
         MIGRATION
 
+        app_file "db/animals_migrate/04_four_migration.rb", <<-MIGRATION
+        class FourMigration < ActiveRecord::Migration::Current
+        end
+        MIGRATION
+
         app_file "db/migrate/03_three_migration.rb", <<-MIGRATION
           class ThreeMigration < ActiveRecord::Migration::Current
           end
@@ -519,7 +534,34 @@ module ApplicationTests
         Dir.chdir(app_path) do
           output = rails "db:migrate"
           entries = output.scan(/^== (\d+).+migrated/).map(&:first).map(&:to_i)
-          assert_equal [1, 2, 3], entries
+          assert_equal [1, 2, 3, 4], entries
+        end
+      end
+
+      test "db:migrate respects timestamp ordering for primary database" do
+        require "#{app_path}/config/environment"
+        app_file "db/migrate/01_one_migration.rb", <<-MIGRATION
+          class OneMigration < ActiveRecord::Migration::Current
+          end
+        MIGRATION
+
+        app_file "db/migrate/02_two_migration.rb", <<-MIGRATION
+          class TwoMigration < ActiveRecord::Migration::Current
+          end
+        MIGRATION
+
+        app_file "db/migrate/03_three_migration.rb", <<-MIGRATION
+          class ThreeMigration < ActiveRecord::Migration::Current
+          end
+        MIGRATION
+
+
+        Dir.chdir(app_path) do
+          rails "db:migrate:up:primary", "VERSION=01_one_migration.rb"
+          rails "db:migrate:up:primary", "VERSION=03_three_migration.rb"
+          output = rails "db:migrate"
+          entries = output.scan(/^== (\d+).+migrated/).map(&:first).map(&:to_i)
+          assert_equal [2], entries
         end
       end
 
@@ -583,45 +625,20 @@ module ApplicationTests
         db_migrate_name_dumps_the_schema("animals", "sql")
       end
 
-      test "db:migrate:name and db:schema:dump:name and db:schema:load:name works for the primary database" do
-        require "#{app_path}/config/environment"
-        db_migrate_and_schema_dump_and_load_one_database("schema", "primary")
+      test "db:migrate:name and db:schema:dump:name and db:schema:load:name works for the primary database with a ruby schema" do
+        db_migrate_and_schema_dump_and_load_one_database("primary", "ruby")
       end
 
-      test "db:migrate:name and db:schema:dump:name and db:schema:load:name works for the animals database" do
-        require "#{app_path}/config/environment"
-        db_migrate_and_schema_dump_and_load_one_database("schema", "animals")
+      test "db:migrate:name and db:schema:dump:name and db:schema:load:name works for the animals database with a ruby schema" do
+        db_migrate_and_schema_dump_and_load_one_database("animals", "ruby")
       end
 
-      ["dump", "load"].each do |command|
-        test "db:structure:#{command}:NAME is deprecated" do
-          app_file "config/database.yml", <<-YAML
-            default: &default
-              adapter: sqlite3
-            development:
-              primary:
-                <<: *default
-              animals:
-                <<: *default
-                database: db/animals_development.sqlite3
-          YAML
-
-          add_to_config("config.active_support.deprecation = :stderr")
-          stderr_output = capture(:stderr) { rails("db:structure:#{command}:animals", stderr: true, allow_failure: true) }
-          assert_match(/DEPRECATION WARNING: Using `bin\/rails db:structure:#{command}:animals` is deprecated and will be removed in Rails 7.0/, stderr_output)
-        end
+      test "db:migrate:name and db:schema:dump:name and db:schema:load:name works for the primary database with a sql schema" do
+        db_migrate_and_schema_dump_and_load_one_database("primary", "sql")
       end
 
-      test "db:migrate:name and db:structure:dump:name and db:structure:load:name works for the primary database" do
-        add_to_config "config.active_record.schema_format = :sql"
-        require "#{app_path}/config/environment"
-        db_migrate_and_schema_dump_and_load_one_database("structure", "primary")
-      end
-
-      test "db:migrate:name and db:structure:dump:name and db:structure:load:name works for the animals database" do
-        add_to_config "config.active_record.schema_format = :sql"
-        require "#{app_path}/config/environment"
-        db_migrate_and_schema_dump_and_load_one_database("structure", "animals")
+      test "db:migrate:name and db:schema:dump:name and db:schema:load:name works for the animals database with a sql schema" do
+        db_migrate_and_schema_dump_and_load_one_database("animals", "sql")
       end
 
       test "db:test:prepare:name works for the primary database with a ruby schema" do
@@ -675,6 +692,28 @@ module ApplicationTests
         db_up_and_down "02", "animals"
       end
 
+      test "db:migrate:down:namespace and db:migrate:up:namespace dumps schema only for specific database" do
+        require "#{app_path}/config/environment"
+
+        app_file "db/migrate/01_one_migration.rb", <<-MIGRATION
+          class OneMigration < ActiveRecord::Migration::Current
+          end
+        MIGRATION
+
+        app_file "db/animals_migrate/02_two_migration.rb", <<-MIGRATION
+          class TwoMigration < ActiveRecord::Migration::Current
+          end
+        MIGRATION
+
+        Dir.chdir(app_path) do
+          rails("db:migrate:up:primary", "VERSION=01")
+          rails("db:migrate:down:primary", "VERSION=01")
+
+          assert File.exist?("db/schema.rb"), "should dump schema for primary database"
+          assert_not File.exist?("db/animals_schema.rb"), "should not dump schema for animals database"
+        end
+      end
+
       test "db:migrate:redo raises in a multi-db application" do
         require "#{app_path}/config/environment"
         db_migrate_redo
@@ -725,6 +764,20 @@ module ApplicationTests
         db_migrate_and_rollback "animals"
       end
 
+      test "db:rollback:namespace dumps schema only for specific database" do
+        Dir.chdir(app_path) do
+          rails "generate", "model", "book", "title:string"
+          rails "generate", "model", "dog", "name:string", "--database animals"
+          rails "db:migrate"
+          File.delete("db/animals_schema.rb")
+
+          rails "db:rollback:primary"
+
+          assert File.exist?("db/schema.rb"), "should dump schema for primary database"
+          assert_not File.exist?("db/animals_schema.rb"), "should not dump schema for animals database"
+        end
+      end
+
       test "db:migrate:status works on all databases" do
         require "#{app_path}/config/environment"
         db_migrate_and_migrate_status
@@ -743,23 +796,35 @@ module ApplicationTests
         db_migrate_and_schema_cache_dump
       end
 
-      # Note that schema cache loader depends on the connection and
-      # does not work for all connections.
-      test "schema_cache is loaded on primary db in multi-db app" do
+      test "db:prepare setup the database even if schema does not exist" do
+        Dir.chdir(app_path) do
+          use_postgresql(multi_db: true) # bug doesn't exist with sqlite3
+          output = rails("db:drop")
+          assert_match(/Dropped database/, output)
+
+          rails "generate", "model", "recipe", "title:string"
+          output = rails("db:prepare")
+          assert_match(/CreateRecipes: migrated/, output)
+        end
+      ensure
+        rails "db:drop" rescue nil
+      end
+
+      test "schema_cache is loaded on all connection db in multi-db app if it exists for the connection" do
         require "#{app_path}/config/environment"
         db_migrate_and_schema_cache_dump
 
-        cache_size_a = lambda { rails("runner", "p ActiveRecord::Base.connection.schema_cache.size").strip }
-        cache_tables_a = lambda { rails("runner", "p ActiveRecord::Base.connection.schema_cache.columns('books')").strip }
-        cache_size_b = lambda { rails("runner", "p AnimalsBase.connection.schema_cache.size").strip }
-        cache_tables_b = lambda { rails("runner", "p AnimalsBase.connection.schema_cache.columns('dogs')").strip }
+        cache_size_a = rails("runner", "p ActiveRecord::Base.connection.schema_cache.size").strip
+        assert_equal "12", cache_size_a
 
-        assert_equal "12", cache_size_a[]
-        assert_includes cache_tables_a[], "title", "expected cache_tables_a to include a title entry"
+        cache_tables_a = rails("runner", "p ActiveRecord::Base.connection.schema_cache.columns('books')").strip
+        assert_includes cache_tables_a, "title", "expected cache_tables_a to include a title entry"
 
-        # Will be 0 because it's not loaded by the railtie
-        assert_equal "0", cache_size_b[]
-        assert_includes cache_tables_b[], "name", "expected cache_tables_b to include a name entry"
+        cache_size_b = rails("runner", "p AnimalsBase.connection.schema_cache.size", stderr: true).strip
+        assert_equal "12", cache_size_b, "expected the cache size for animals to be valid since it was dumped"
+
+        cache_tables_b = rails("runner", "p AnimalsBase.connection.schema_cache.columns('dogs')").strip
+        assert_includes cache_tables_b, "name", "expected cache_tables_b to include a name entry"
       end
 
       test "db:schema:cache:clear works on all databases" do
@@ -791,6 +856,38 @@ module ApplicationTests
         assert_no_match(/You have \d+ pending migration/, output)
         output = rails("db:abort_if_pending_migrations:animals", allow_failure: true)
         assert_match(/You have 1 pending migration/, output)
+      end
+
+      test "db:version works on all databases" do
+        require "#{app_path}/config/environment"
+        Dir.chdir(app_path) do
+          generate_models_for_animals
+          primary_version = File.basename(Dir[File.join(app_path, "db", "migrate", "*.rb")].first).to_i
+          animals_version = File.basename(Dir[File.join(app_path, "db", "animals_migrate", "*.rb")].first).to_i
+
+          rails("db:migrate")
+          output = rails("db:version")
+
+          assert_match(/database: storage\/development.sqlite3\nCurrent version: #{primary_version}/, output)
+          assert_match(/database: storage\/development_animals.sqlite3\nCurrent version: #{animals_version}/, output)
+        end
+      end
+
+      test "db:version:namespace works" do
+        require "#{app_path}/config/environment"
+        Dir.chdir(app_path) do
+          generate_models_for_animals
+          primary_version = File.basename(Dir[File.join(app_path, "db", "migrate", "*.rb")].first).to_i
+          animals_version = File.basename(Dir[File.join(app_path, "db", "animals_migrate", "*.rb")].first).to_i
+
+          rails("db:migrate")
+
+          output = rails("db:version:primary")
+          assert_match(/Current version: #{primary_version}/, output)
+
+          output = rails("db:version:animals")
+          assert_match(/Current version: #{animals_version}/, output)
+        end
       end
 
       test "db:setup works on all databases" do
@@ -842,6 +939,28 @@ module ApplicationTests
         end
       end
 
+      test "db:prepare runs seeds once" do
+        require "#{app_path}/config/environment"
+        Dir.chdir(app_path) do
+          use_postgresql(multi_db: true)
+
+          rails "db:drop"
+          generate_models_for_animals
+          rails "generate", "model", "recipe", "title:string"
+
+          app_file "db/seeds.rb", <<-RUBY
+            Dog.create!
+          RUBY
+
+          rails("db:prepare")
+
+          assert_equal 1, Dog.count
+        ensure
+          Dog.connection.disconnect!
+          rails "db:drop" rescue nil
+        end
+      end
+
       test "db:seed uses primary database connection" do
         @old_rails_env = ENV["RAILS_ENV"]
         @old_rack_env = ENV["RACK_ENV"]
@@ -855,7 +974,7 @@ module ApplicationTests
         RUBY
 
         output = rails("db:seed")
-        assert_equal output, "db/development.sqlite3"
+        assert_equal "storage/development.sqlite3", output
       ensure
         ENV["RAILS_ENV"] = @old_rails_env
         ENV["RACK_ENV"] = @old_rack_env
@@ -870,17 +989,17 @@ module ApplicationTests
               %>
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
         YAML
 
         app_file "config/environments/development.rb", <<-RUBY
           Rails.application.configure do
-            config.database = "db/development.sqlite3"
+            config.database = "storage/development.sqlite3"
           end
         RUBY
 
-        db_create_and_drop_namespace("primary", "db/development.sqlite3")
+        db_create_and_drop_namespace("primary", "storage/development.sqlite3")
       end
 
       test "db:create and db:drop don't raise errors when loading YAML containing conditional statements in ERB" do
@@ -890,22 +1009,35 @@ module ApplicationTests
             <% if Rails.application.config.database %>
               database: <%= Rails.application.config.database %>
             <% else %>
-              database: db/default.sqlite3
+              database: storage/default.sqlite3
             <% end %>
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
 
         YAML
 
         app_file "config/environments/development.rb", <<-RUBY
           Rails.application.configure do
-            config.database = "db/development.sqlite3"
+            config.database = "storage/development.sqlite3"
           end
         RUBY
 
-        db_create_and_drop_namespace("primary", "db/development.sqlite3")
+        db_create_and_drop_namespace("primary", "storage/development.sqlite3")
+      end
+
+      test "db:create and db:drop don't raise errors when loading YAML containing ERB in database keys" do
+        app_file "config/database.yml", <<-YAML
+          development:
+            <% 5.times do |i| %>
+            shard_<%= i %>:
+              database: storage/development_shard_<%= i %>.sqlite3
+              adapter: sqlite3
+            <% end %>
+        YAML
+
+        db_create_and_drop_namespace("shard_3", "storage/development_shard_3.sqlite3")
       end
 
       test "schema generation when dump_schema_after_migration is true schema_dump is false" do
@@ -1014,75 +1146,96 @@ module ApplicationTests
         end
       end
 
+      test "db:test:prepare don't raise errors when schema_dump is false" do
+        app_file "config/database.yml", <<~EOS
+          development: &development
+            primary:
+              adapter: sqlite3
+              database: dev_db
+              schema_dump: false
+            secondary:
+              adapter: sqlite3
+              database: secondary_dev_db
+              schema_dump: false
+          test:
+            <<: *development
+        EOS
+
+        Dir.chdir(app_path) do
+          output = rails("db:test:prepare", "--trace")
+          assert_match(/Execute db:test:prepare/, output)
+        end
+      end
+
       test "db:create and db:drop don't raise errors when loading YAML containing multiple ERB statements on the same line" do
         app_file "config/database.yml", <<-YAML
           development:
             primary:
-              database: <% if Rails.application.config.database %><%= Rails.application.config.database %><% else %>db/default.sqlite3<% end %>
+              database: <% if Rails.application.config.database %><%= Rails.application.config.database %><% else %>storage/default.sqlite3<% end %>
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
         YAML
 
         app_file "config/environments/development.rb", <<-RUBY
           Rails.application.configure do
-            config.database = "db/development.sqlite3"
+            config.database = "storage/development.sqlite3"
           end
         RUBY
 
-        db_create_and_drop_namespace("primary", "db/development.sqlite3")
+        db_create_and_drop_namespace("primary", "storage/development.sqlite3")
       end
 
       test "db:create and db:drop don't raise errors when loading YAML with single-line ERB" do
         app_file "config/database.yml", <<-YAML
           development:
             primary:
-              <%= Rails.application.config.database ? 'database: db/development.sqlite3' : 'database: db/development.sqlite3' %>
+              <%= Rails.application.config.database ? 'database: storage/development.sqlite3' : 'database: storage/development.sqlite3' %>
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
         YAML
 
         app_file "config/environments/development.rb", <<-RUBY
           Rails.application.configure do
-            config.database = "db/development.sqlite3"
+            config.database = "storage/development.sqlite3"
           end
         RUBY
 
-        db_create_and_drop_namespace("primary", "db/development.sqlite3")
+        db_create_and_drop_namespace("primary", "storage/development.sqlite3")
       end
 
       test "db:create and db:drop don't raise errors when loading YAML which contains a key's value as an ERB statement" do
         app_file "config/database.yml", <<-YAML
           development:
             primary:
-              database: <%= Rails.application.config.database ? 'db/development.sqlite3' : 'db/development.sqlite3' %>
+              database: <%= Rails.application.config.database ? 'storage/development.sqlite3' : 'storage/development.sqlite3' %>
               custom_option: <%= ENV['CUSTOM_OPTION'] %>
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
         YAML
 
         app_file "config/environments/development.rb", <<-RUBY
           Rails.application.configure do
-            config.database = "db/development.sqlite3"
+            config.database = "storage/development.sqlite3"
           end
         RUBY
 
-        db_create_and_drop_namespace("primary", "db/development.sqlite3")
+        db_create_and_drop_namespace("primary", "storage/development.sqlite3")
       end
 
       test "when there is no primary config, the first is chosen as the default" do
         app_file "config/database.yml", <<-YAML
           development:
             default:
-              database: db/default.sqlite3
+              database: storage/default.sqlite3
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
               migrations_paths: db/animals_migrate
         YAML
@@ -1095,10 +1248,10 @@ module ApplicationTests
         app_file "config/database.yml", <<-YAML
           development:
             primary:
-              database: db/default.sqlite3
+              database: storage/default.sqlite3
               adapter: sqlite3
             animals:
-              database: db/development_animals.sqlite3
+              database: storage/development_animals.sqlite3
               adapter: sqlite3
               database_tasks: false
               schema_dump: true ### database_tasks should override all sub-settings
@@ -1116,13 +1269,74 @@ module ApplicationTests
           error = assert_raises do
             rails "db:migrate:animals" ### Task not defined
           end
-          assert_includes error.message, "See the list of available tasks"
+          assert_includes error.message, "Unrecognized command"
 
           rails "db:schema:dump"
           assert_not File.exist?("db/animals_schema.yml")
 
           rails "db:drop"
           assert_equal "true", animals_db_exists.call
+        end
+      end
+
+      test "destructive tasks are protected" do
+        add_to_config "config.active_record.protected_environments = ['development', 'test']"
+
+        require "#{app_path}/config/environment"
+
+        Dir.chdir(app_path) do
+          generate_models_for_animals
+          rails "db:migrate"
+
+          destructive_tasks = ["db:drop:animals", "db:schema:load:animals", "db:test:purge:animals"]
+
+          destructive_tasks.each do |task|
+            error = assert_raises("#{task} did not raise ActiveRecord::ProtectedEnvironmentError") { rails task }
+            assert_match(/ActiveRecord::ProtectedEnvironmentError/, error.message)
+          end
+        end
+      end
+
+      test "after schema is loaded test run on the correct connections" do
+        require "#{app_path}/config/environment"
+        app_file "config/database.yml", <<-YAML
+          development:
+            primary:
+              database: storage/default.sqlite3
+              adapter: sqlite3
+            animals:
+              database: storage/development_animals.sqlite3
+              adapter: sqlite3
+              migrations_paths: db/animals_migrate
+          test:
+            primary:
+              database: storage/default_test.sqlite3
+              adapter: sqlite3
+            animals:
+              database: storage/test_animals.sqlite3
+              adapter: sqlite3
+              migrations_paths: db/animals_migrate
+        YAML
+
+        Dir.chdir(app_path) do
+          generate_models_for_animals
+
+          File.open("test/models/book_test.rb", "w") do |file|
+            file.write(<<~EOS)
+              require "test_helper"
+
+              class BookTest < ActiveSupport::TestCase
+                test "a book" do
+                  assert Book.first
+                end
+              end
+            EOS
+          end
+
+          rails "db:migrate"
+          rails "db:schema:dump"
+          output = rails "test"
+          assert_match(/1 runs, 1 assertions, 0 failures, 0 errors, 0 skips/, output)
         end
       end
     end

@@ -96,7 +96,7 @@ module ActiveRecord
       def change
         change_table("horses") do |t|
           t.remove_index [:name, :color]
-          t.remove_index [:color], if_exists: true
+          t.remove_index [:color] if t.index_exists?(:color)
         end
       end
     end
@@ -149,7 +149,7 @@ module ActiveRecord
 
     class DisableExtension2 < SilentMigration
       def change
-        disable_extension "hstore"
+        disable_extension "hstore", force: :cascade
       end
     end
 
@@ -478,7 +478,7 @@ module ActiveRecord
     end
 
     # MySQL 5.7 and Oracle do not allow to create duplicate indexes on the same columns
-    unless current_adapter?(:Mysql2Adapter, :OracleAdapter)
+    unless current_adapter?(:Mysql2Adapter, :TrilogyAdapter, :OracleAdapter)
       def test_migrate_revert_add_index_with_name
         RevertNamedIndexMigration1.new.migrate(:up)
         RevertNamedIndexMigration2.new.migrate(:up)
@@ -515,8 +515,8 @@ module ActiveRecord
       horse1.reload
       horse2 = Horse.create
 
-      assert 1, horse1.oldie # created before migration
-      assert 0, horse2.oldie # created after migration
+      assert_equal 1, horse1.oldie # created before migration
+      assert_equal 0, horse2.oldie # created after migration
 
       UpOnlyMigration.new.migrate(:down) # should be no error
       connection = ActiveRecord::Base.connection

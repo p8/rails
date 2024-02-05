@@ -3,11 +3,13 @@
 require "delegate"
 
 module ActionMailer
-  # The <tt>ActionMailer::MessageDelivery</tt> class is used by
+  # = Action Mailer \MessageDelivery
+  #
+  # The +ActionMailer::MessageDelivery+ class is used by
   # ActionMailer::Base when creating a new mailer.
   # <tt>MessageDelivery</tt> is a wrapper (+Delegator+ subclass) around a lazy
-  # created <tt>Mail::Message</tt>. You can get direct access to the
-  # <tt>Mail::Message</tt>, deliver the email or schedule the email to be sent
+  # created +Mail::Message+. You can get direct access to the
+  # +Mail::Message+, deliver the email or schedule the email to be sent
   # through Active Job.
   #
   #   Notifier.welcome(User.first)               # an ActionMailer::MessageDelivery object
@@ -62,9 +64,10 @@ module ActionMailer
     # * <tt>:queue</tt> - Enqueue the email on the specified queue
     # * <tt>:priority</tt> - Enqueues the email with the specified priority
     #
-    # By default, the email will be enqueued using <tt>ActionMailer::DeliveryJob</tt>. Each
-    # <tt>ActionMailer::Base</tt> class can specify the job to use by setting the class variable
-    # +delivery_job+.
+    # By default, the email will be enqueued using ActionMailer::MailDeliveryJob on
+    # the default queue. Mailer classes can customize the queue name used for the default
+    # job by assigning a +deliver_later_queue_name+ class variable, or provide a custom job
+    # by assigning a +delivery_job+. When a custom job is used, it controls the queue name.
     #
     #   class AccountRegistrationMailer < ApplicationMailer
     #     self.delivery_job = RegistrationDeliveryJob
@@ -88,9 +91,10 @@ module ActionMailer
     # * <tt>:queue</tt> - Enqueue the email on the specified queue.
     # * <tt>:priority</tt> - Enqueues the email with the specified priority
     #
-    # By default, the email will be enqueued using <tt>ActionMailer::DeliveryJob</tt>. Each
-    # <tt>ActionMailer::Base</tt> class can specify the job to use by setting the class variable
-    # +delivery_job+.
+    # By default, the email will be enqueued using ActionMailer::MailDeliveryJob on
+    # the default queue. Mailer classes can customize the queue name used for the default
+    # job by assigning a +deliver_later_queue_name+ class variable, or provide a custom job
+    # by assigning a +delivery_job+. When a custom job is used, it controls the queue name.
     #
     #   class AccountRegistrationMailer < ApplicationMailer
     #     self.delivery_job = RegistrationDeliveryJob
@@ -106,7 +110,9 @@ module ActionMailer
     #
     def deliver_now!
       processed_mailer.handle_exceptions do
-        message.deliver!
+        processed_mailer.run_callbacks(:deliver) do
+          message.deliver!
+        end
       end
     end
 
@@ -116,13 +122,15 @@ module ActionMailer
     #
     def deliver_now
       processed_mailer.handle_exceptions do
-        message.deliver
+        processed_mailer.run_callbacks(:deliver) do
+          message.deliver
+        end
       end
     end
 
     private
       # Returns the processed Mailer instance. We keep this instance
-      # on hand so we can delegate exception handling to it.
+      # on hand so we can run callbacks and delegate exception handling to it.
       def processed_mailer
         @processed_mailer ||= @mailer_class.new.tap do |mailer|
           mailer.process @action, *@args
@@ -140,38 +148,8 @@ module ActionMailer
             "#deliver_later, 2. only touch the message *within your mailer " \
             "method*, or 3. use a custom Active Job instead of #deliver_later."
         else
-          job = @mailer_class.delivery_job
-
-          if use_new_args?(job)
-            job.set(options).perform_later(
-              @mailer_class.name, @action.to_s, delivery_method.to_s, args: @args)
-          elsif job <= DeliveryJob
-            job.set(options).perform_later(
-              @mailer_class.name, @action.to_s, delivery_method.to_s, *@args)
-          else
-            ActiveSupport::Deprecation.warn(<<~EOM)
-              In Rails 7.0, Action Mailer will pass the mail arguments inside the `:args` keyword argument.
-              The `perform` method of the #{job} needs to change and forward the mail arguments
-              from the `args` keyword argument.
-
-              The `perform` method should now look like:
-
-              `def perform(mailer, mail_method, delivery, args:)`
-            EOM
-
-            job.set(options).perform_later(
-              @mailer_class.name, @action.to_s, delivery_method.to_s, *@args)
-          end
-        end
-      end
-
-      def use_new_args?(job)
-        parameters = job.public_instance_method(:perform).parameters
-
-        parameters.find do |key, name|
-          return true if key == :keyreq && name == :args
-
-          key == :keyrest and name != :**
+          @mailer_class.delivery_job.set(options).perform_later(
+            @mailer_class.name, @action.to_s, delivery_method.to_s, args: @args)
         end
       end
   end

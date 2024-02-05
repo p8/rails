@@ -70,6 +70,13 @@ class BaseTest < ActiveSupport::TestCase
     assert_equal("Welcome", email.body.encoded)
   end
 
+  test "mail() doesn't set the mailer as a controller in the execution context" do
+    ActiveSupport::ExecutionContext.clear
+    assert_nil ActiveSupport::ExecutionContext.to_h[:controller]
+    BaseMailer.welcome(from: "someone@example.com", to: "another@example.org").to
+    assert_nil ActiveSupport::ExecutionContext.to_h[:controller]
+  end
+
   test "can pass in :body to the mail method hash" do
     email = BaseMailer.welcome(body: "Hello there")
     assert_equal("text/plain", email.mime_type)
@@ -205,7 +212,7 @@ class BaseTest < ActiveSupport::TestCase
     assert_equal("certificate.pdf", email.parts[1].filename)
   end
 
-  # Defaults values
+  # Default values
   test "uses default charset from class" do
     with_default BaseMailer, charset: "US-ASCII" do
       email = BaseMailer.welcome
@@ -825,8 +832,8 @@ class BaseTest < ActiveSupport::TestCase
   end
 
   test "proc default values can have arity of 1 where arg is a mailer instance" do
-    assert_equal(ProcMailer.welcome["X-Lambda-Arity-1-arg"].to_s, "complex_value")
-    assert_equal(ProcMailer.welcome["X-Lambda-Arity-1-self"].to_s, "complex_value")
+    assert_equal("complex_value", ProcMailer.welcome["X-Lambda-Arity-1-arg"].to_s)
+    assert_equal("complex_value", ProcMailer.welcome["X-Lambda-Arity-1-self"].to_s)
   end
 
   test "proc default values with fixed arity of 0 can be called" do
@@ -958,9 +965,7 @@ class BaseTest < ActiveSupport::TestCase
 
   test "notification for process" do
     events = []
-    ActiveSupport::Notifications.subscribe("process.action_mailer") do |*args|
-      events << ActiveSupport::Notifications::Event.new(*args)
-    end
+    ActiveSupport::Notifications.subscribe("process.action_mailer") { |event| events << event }
 
     BaseMailer.welcome(body: "Hello there").deliver_now
 
@@ -975,9 +980,7 @@ class BaseTest < ActiveSupport::TestCase
 
   test "notification for deliver" do
     events = []
-    ActiveSupport::Notifications.subscribe("deliver.action_mailer") do |*args|
-      events << ActiveSupport::Notifications::Event.new(*args)
-    end
+    ActiveSupport::Notifications.subscribe("deliver.action_mailer") { |event| events << event }
 
     BaseMailer.welcome(body: "Hello there").deliver_now
 
@@ -1120,6 +1123,24 @@ class BasePreviewInterceptorsTest < ActiveSupport::TestCase
     end
     assert_not_called(MySecondInterceptor, :previewing_email, returns: mail) do
       BaseMailerPreview.call(:welcome)
+    end
+  end
+end
+
+class PreviewTest < ActiveSupport::TestCase
+  class A < ActionMailer::Preview; end
+
+  module B
+    class A < ActionMailer::Preview; end
+    class C < ActionMailer::Preview; end
+  end
+
+  class C < ActionMailer::Preview; end
+
+  test "all() returns mailers in alphabetical order" do
+    ActionMailer::Preview.stub(:descendants, [C, A, B::C, B::A]) do
+      mailers = ActionMailer::Preview.all
+      assert_equal [A, B::A, B::C, C], mailers
     end
   end
 end

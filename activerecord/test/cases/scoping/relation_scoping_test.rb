@@ -42,15 +42,24 @@ class RelationScopingTest < ActiveRecord::TestCase
     assert_equal Developer.order("id DESC").to_a.reverse, Developer.order("id DESC").reverse_order
   end
 
-  def test_reverse_order_with_arel_node
+  def test_reverse_order_with_arel_attribute
     assert_equal Developer.order("id DESC").to_a.reverse, Developer.order(Developer.arel_table[:id].desc).reverse_order
   end
 
-  def test_reverse_order_with_multiple_arel_nodes
+  def test_reverse_order_with_arel_attribute_as_hash
+    assert_equal Developer.order("id DESC").to_a.reverse, Developer.order(Developer.arel_table[:id] => :desc).reverse_order
+  end
+
+  def test_reverse_order_with_arel_node_as_hash
+    node = Developer.arel_table[:id] + 0 # converts to Arel::Nodes::Grouping
+    assert_equal Developer.order("id DESC").to_a.reverse, Developer.order(node => :desc).reverse_order
+  end
+
+  def test_reverse_order_with_multiple_arel_attributes
     assert_equal Developer.order("id DESC").order("name DESC").to_a.reverse, Developer.order(Developer.arel_table[:id].desc).order(Developer.arel_table[:name].desc).reverse_order
   end
 
-  def test_reverse_order_with_arel_nodes_and_strings
+  def test_reverse_order_with_arel_attributes_and_strings
     assert_equal Developer.order("id DESC").order("name DESC").to_a.reverse, Developer.order("id DESC").order(Developer.arel_table[:name].desc).reverse_order
   end
 
@@ -147,7 +156,7 @@ class RelationScopingTest < ActiveRecord::TestCase
   def test_scoped_find_with_annotation
     Developer.annotate("scoped").scoping do
       developer = nil
-      assert_sql(%r{/\* scoped \*/}) do
+      assert_queries_match(%r{/\* scoped \*/}) do
         developer = Developer.where("name = 'David'").first
       end
       assert_equal "David", developer.name
@@ -361,7 +370,7 @@ class RelationScopingTest < ActiveRecord::TestCase
     end
 
     Author.where(organization_id: 1).scoping(all_queries: true) do
-      update_scoped_sql = capture_sql { dev.update(name: "Not Eileen") }.first
+      update_scoped_sql = capture_sql { dev.update(name: "Not Eileen") }.second
       assert_match(/organization_id/, update_scoped_sql)
     end
   end

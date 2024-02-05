@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "active_support/core_ext/string/filters"
-
 module ActionDispatch
   # The routing module provides URL rewriting in native Ruby. It's a way to
   # redirect incoming requests to controllers and actions. This replaces
@@ -28,7 +26,7 @@ module ActionDispatch
   #
   # Resource routing allows you to quickly declare all of the common routes
   # for a given resourceful controller. Instead of declaring separate routes
-  # for your +index+, +show+, +new+, +edit+, +create+, +update+ and +destroy+
+  # for your +index+, +show+, +new+, +edit+, +create+, +update+, and +destroy+
   # actions, a resourceful route declares them in a single line of code:
   #
   #  resources :photos
@@ -65,9 +63,8 @@ module ActionDispatch
   #     resources :posts, :comments
   #   end
   #
-  # For more, see <tt>Routing::Mapper::Resources#resources</tt>,
-  # <tt>Routing::Mapper::Scoping#namespace</tt>, and
-  # <tt>Routing::Mapper::Scoping#scope</tt>.
+  # For more, see Routing::Mapper::Resources#resources,
+  # Routing::Mapper::Scoping#namespace, and Routing::Mapper::Scoping#scope.
   #
   # == Non-resourceful routes
   #
@@ -120,9 +117,9 @@ module ActionDispatch
   #
   #   # In config/routes.rb
   #   controller :blog do
-  #     get 'blog/show',    to: :list
-  #     get 'blog/delete',  to: :delete
-  #     get 'blog/edit',    to: :edit
+  #     get 'blog/show'    => :list
+  #     get 'blog/delete'  => :delete
+  #     get 'blog/edit'    => :edit
   #   end
   #
   #   # provides named routes for show, delete, and edit
@@ -241,7 +238,7 @@ module ActionDispatch
   #
   # == View a list of all your routes
   #
-  #   rails routes
+  #   $ bin/rails routes
   #
   # Target a specific controller with <tt>-c</tt>, or grep routes
   # using <tt>-g</tt>. Useful in conjunction with <tt>--expanded</tt>
@@ -251,7 +248,9 @@ module ActionDispatch
 
     autoload :Mapper
     autoload :RouteSet
-    autoload :RoutesProxy
+    eager_autoload do
+      autoload :RoutesProxy
+    end
     autoload :UrlFor
     autoload :PolymorphicRoutes
 

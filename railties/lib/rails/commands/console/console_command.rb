@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require "irb"
-require "irb/completion"
-
 require "rails/command/environment_argument"
 
 module Rails
@@ -11,6 +8,58 @@ module Rails
       def filter_backtrace(bt)
         if result = super
           Rails.backtrace_cleaner.filter([result]).first
+        end
+      end
+    end
+
+    class IRBConsole
+      def initialize(app)
+        @app = app
+
+        require "irb"
+        require "irb/completion"
+
+        IRB::WorkSpace.prepend(BacktraceCleaner)
+        IRB::ExtendCommandBundle.include(Rails::ConsoleMethods)
+      end
+
+      def name
+        "IRB"
+      end
+
+      def start
+        IRB.setup(nil)
+
+        if !Rails.env.local? && !ENV.key?("IRB_USE_AUTOCOMPLETE")
+          IRB.conf[:USE_AUTOCOMPLETE] = false
+        end
+
+        env = colorized_env
+        app_name = @app.class.module_parent_name.underscore.dasherize
+        prompt_prefix = "#{app_name}(#{env})"
+
+        IRB.conf[:PROMPT][:RAILS_PROMPT] = {
+          PROMPT_I: "#{prompt_prefix}> ",
+          PROMPT_S: "#{prompt_prefix}%l ",
+          PROMPT_C: "#{prompt_prefix}* ",
+          RETURN: "=> %s\n"
+        }
+
+        # Respect user's choice of prompt mode.
+        IRB.conf[:PROMPT_MODE] = :RAILS_PROMPT if IRB.conf[:PROMPT_MODE] == :DEFAULT
+        IRB::Irb.new.run(IRB.conf)
+      end
+
+      def colorized_env
+        case Rails.env
+        when "development"
+          IRB::Color.colorize("dev", [:BLUE])
+        when "test"
+          IRB::Color.colorize("test", [:BLUE])
+        when "production"
+          IRB::Color.colorize("prod", [:RED])
+        else
+          Rails.env
         end
       end
     end
@@ -34,15 +83,15 @@ module Rails
 
       app.load_console
 
-      @console = app.config.console || IRB
-
-      if @console == IRB
-        IRB::WorkSpace.prepend(BacktraceCleaner)
-      end
+      @console = app.config.console || IRBConsole.new(app)
     end
 
     def sandbox?
-      options[:sandbox]
+      return options[:sandbox] if !options[:sandbox].nil?
+
+      return false if Rails.env.local?
+
+      app.config.sandbox_by_default
     end
 
     def environment
@@ -64,9 +113,6 @@ module Rails
         puts "Loading #{Rails.env} environment (Rails #{Rails.version})"
       end
 
-      if defined?(console::ExtendCommandBundle)
-        console::ExtendCommandBundle.include(Rails::ConsoleMethods)
-      end
       console.start
     end
   end
@@ -75,7 +121,7 @@ module Rails
     class ConsoleCommand < Base # :nodoc:
       include EnvironmentArgument
 
-      class_option :sandbox, aliases: "-s", type: :boolean, default: false,
+      class_option :sandbox, aliases: "-s", type: :boolean, default: nil,
         desc: "Rollback database modifications on exit."
 
       def initialize(args = [], local_options = {}, config = {})
@@ -92,13 +138,9 @@ module Rails
         super(args, local_options, config)
       end
 
+      desc "console", "Start the Rails console"
       def perform
-        extract_environment_option_from_argument
-
-        # RAILS_ENV needs to be set before config/application is required.
-        ENV["RAILS_ENV"] = options[:environment]
-
-        require_application_and_environment!
+        boot_application!
         Rails::Console.start(Rails.application, options)
       end
     end

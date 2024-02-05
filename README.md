@@ -1,11 +1,5 @@
-<p align="center">
-  <a href="https://rubyonrails.org/" target="_blank" rel="noopener noreferrer">
-    <img src="https://rubyonrails.org/images/rails-logo.svg" width="400">
-  </a>
-</p>
-
 # Welcome to Rails
-
+x
 ## What's Rails?
 
 Rails is a web-application framework that includes everything needed to
@@ -28,6 +22,14 @@ Although most Rails models are backed by a database, models can also be ordinary
 Ruby classes, or Ruby classes that implement a set of interfaces as provided by
 the [Active Model](activemodel/README.rdoc) module.
 
+## View layer
+
+The _**View layer**_ is composed of "templates" that are responsible for providing
+appropriate representations of your application's resources. Templates can
+come in a variety of formats, but most view templates are HTML with embedded
+Ruby code (ERB files). Views are typically rendered to generate a controller response
+or to generate the body of an email. In Rails, View generation is handled by [Action View](actionview/README.rdoc).
+
 ## Controller layer
 
 The _**Controller layer**_ is responsible for handling incoming HTTP requests and
@@ -38,48 +40,45 @@ In Rails, incoming requests are routed by Action Dispatch to an appropriate cont
 controller classes are derived from `ActionController::Base`. Action Dispatch and Action Controller
 are bundled together in [Action Pack](actionpack/README.rdoc).
 
-## View layer
-
-The _**View layer**_ is composed of "templates" that are responsible for providing
-appropriate representations of your application's resources. Templates can
-come in a variety of formats, but most view templates are HTML with embedded
-Ruby code (ERB files). Views are typically rendered to generate a controller response
-or to generate the body of an email. In Rails, View generation is handled by [Action View](actionview/README.rdoc).
-
 ## Frameworks and libraries
 
 [Active Record](activerecord/README.rdoc), [Active Model](activemodel/README.rdoc), [Action Pack](actionpack/README.rdoc), and [Action View](actionview/README.rdoc) can each be used independently outside Rails.
-In addition to that, Rails also comes with [Action Mailer](actionmailer/README.rdoc), a library
-to generate and send emails; [Action Mailbox](actionmailbox/README.md), a library to receive emails within a Rails application;
-[Active Job](activejob/README.md), a framework for declaring jobs and making them run on a variety of queuing
-backends; [Action Cable](actioncable/README.md), a framework to
-integrate WebSockets with a Rails application; [Active Storage](activestorage/README.md), a library to attach cloud
-and local files to Rails applications; [Action Text](actiontext/README.md), a library to handle rich text content;
-and [Active Support](activesupport/README.rdoc), a collection
-of utility classes and standard library extensions that are useful for Rails,
-and may also be used independently outside Rails.
+
+In addition to that, Rails also comes with:
+
+- [Action Mailer](actionmailer/README.rdoc), a library to generate and send emails
+- [Action Mailbox](actionmailbox/README.md), a library to receive emails within a Rails application
+- [Active Job](activejob/README.md), a framework for declaring jobs and making them run on a variety of queuing backends
+- [Action Cable](actioncable/README.md), a framework to integrate WebSockets with a Rails application
+- [Active Storage](activestorage/README.md), a library to attach cloud and local files to Rails applications
+- [Action Text](actiontext/README.md), a library to handle rich text content
+- [Active Support](activesupport/README.rdoc), a collection of utility classes and standard library extensions that are useful for Rails, and may also be used independently outside Rails
 
 ## Getting Started
 
 1. Install Rails at the command prompt if you haven't yet:
 
-        $ gem install rails
+	```bash
+	$ gem install rails
+	```
 
 2. At the command prompt, create a new Rails application:
 
-        $ rails new myapp
+	```bash
+	$ rails new myapp
+	```
 
    where "myapp" is the application name.
 
 3. Change directory to `myapp` and start the web server:
 
-        $ cd myapp
-        $ bin/rails server
-
+	```bash
+	$ cd myapp
+	$ bin/rails server
+	```
    Run with `--help` or `-h` for options.
 
-4. Go to `http://localhost:3000` and you'll see:
-"Yay! You’re on Rails!"
+4. Go to `http://localhost:3000` and you'll see the Rails bootscreen with your Rails and Ruby versions.
 
 5. Follow the guidelines to start developing your application. You may find
    the following resources handy:
@@ -93,10 +92,10 @@ We encourage you to contribute to Ruby on Rails! Please check out the
 [Contributing to Ruby on Rails guide](https://edgeguides.rubyonrails.org/contributing_to_ruby_on_rails.html) for guidelines about how to proceed. [Join us!](https://contributors.rubyonrails.org)
 
 Trying to report a possible security vulnerability in Rails? Please
-check out our [security policy](https://rubyonrails.org/security/) for
+check out our [security policy](https://rubyonrails.org/security) for
 guidelines about how to proceed.
 
-Everyone interacting in Rails and its sub-projects' codebases, issue trackers, chat rooms, and mailing lists is expected to follow the Rails [code of conduct](https://rubyonrails.org/conduct/).
+Everyone interacting in Rails and its sub-projects' codebases, issue trackers, chat rooms, and mailing lists is expected to follow the Rails [code of conduct](https://rubyonrails.org/conduct).
 
 ## License
 

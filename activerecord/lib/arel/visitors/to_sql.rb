@@ -245,6 +245,13 @@ module Arel # :nodoc: all
           collector << ")"
         end
 
+        def visit_Arel_Nodes_Filter(o, collector)
+          visit o.left, collector
+          collector << " FILTER (WHERE "
+          visit o.right, collector
+          collector << ")"
+        end
+
         def visit_Arel_Nodes_Rows(o, collector)
           if o.expr
             collector << "ROWS "
@@ -326,7 +333,7 @@ module Arel # :nodoc: all
         def visit_Arel_Nodes_HomogeneousIn(o, collector)
           collector.preparable = false
 
-          collector << quote_table_name(o.table_name) << "." << quote_column_name(o.column_name)
+          visit o.left, collector
 
           if o.type == :in
             collector << " IN ("
@@ -343,7 +350,6 @@ module Arel # :nodoc: all
           end
 
           collector << ")"
-          collector
         end
 
         def visit_Arel_SelectManager(o, collector)
@@ -562,11 +568,17 @@ module Arel # :nodoc: all
         end
 
         def visit_Arel_Table(o, collector)
-          if o.table_alias
-            collector << quote_table_name(o.name) << " " << quote_table_name(o.table_alias)
+          if Arel::Nodes::Node === o.name
+            visit o.name, collector
           else
             collector << quote_table_name(o.name)
           end
+
+          if o.table_alias
+            collector << " " << quote_table_name(o.table_alias)
+          end
+
+          collector
         end
 
         def visit_Arel_Nodes_In(o, collector)
@@ -722,6 +734,20 @@ module Arel # :nodoc: all
           collector << quote_column_name(o.name)
         end
 
+        def visit_Arel_Nodes_Cte(o, collector)
+          collector << quote_table_name(o.name)
+          collector << " AS "
+
+          case o.materialized
+          when true
+            collector << "MATERIALIZED "
+          when false
+            collector << "NOT MATERIALIZED "
+          end
+
+          visit o.relation, collector
+        end
+
         def visit_Arel_Attributes_Attribute(o, collector)
           join_name = o.relation.table_alias || o.relation.name
           collector << quote_table_name(join_name) << "." << quote_column_name(o.name)
@@ -743,6 +769,59 @@ module Arel # :nodoc: all
         def visit_Arel_Nodes_SqlLiteral(o, collector)
           collector.preparable = false
           collector << o.to_s
+        end
+
+        def visit_Arel_Nodes_BoundSqlLiteral(o, collector)
+          bind_index = 0
+
+          new_bind = lambda do |value|
+            if Arel.arel_node?(value)
+              visit value, collector
+            elsif value.is_a?(Array)
+              if value.empty?
+                collector << @connection.quote(nil)
+              else
+                if value.none? { |v| Arel.arel_node?(v) }
+                  collector.add_binds(value.map { |v| @connection.cast_bound_value(v) }, &bind_block)
+                else
+                  value.each_with_index do |v, i|
+                    collector << ", " unless i == 0
+                    if Arel.arel_node?(v)
+                      visit v, collector
+                    else
+                      collector.add_bind(@connection.cast_bound_value(v), &bind_block)
+                    end
+                  end
+                end
+              end
+            else
+              collector.add_bind(@connection.cast_bound_value(value), &bind_block)
+            end
+          end
+
+          if o.positional_binds
+            o.sql_with_placeholders.scan(/\?|([^?]+)/) do
+              if $1
+                collector << $1
+              else
+                value = o.positional_binds[bind_index]
+                bind_index += 1
+
+                new_bind.call(value)
+              end
+            end
+          else
+            o.sql_with_placeholders.scan(/:(?<!::)([a-zA-Z]\w*)|([^:]+|.)/) do
+              if $2
+                collector << $2
+              else
+                value = o.named_binds[$1.to_sym]
+                new_bind.call(value)
+              end
+            end
+          end
+
+          collector
         end
 
         def visit_Integer(o, collector)
@@ -783,6 +862,10 @@ module Arel # :nodoc: all
           inject_join o, collector, ", "
         end
         alias :visit_Set :visit_Array
+
+        def visit_Arel_Nodes_Fragments(o, collector)
+          inject_join o.values, collector, " "
+        end
 
         def quote(value)
           return value if Arel::Nodes::SqlLiteral === value
@@ -834,6 +917,10 @@ module Arel # :nodoc: all
           o.limit || o.offset || !o.orders.empty?
         end
 
+        def has_group_by_and_having?(o)
+          !o.groups.empty? && !o.havings.empty?
+        end
+
         # The default strategy for an UPDATE with joins is to use a subquery. This doesn't work
         # on MySQL (even when aliasing the tables), but MySQL allows using JOIN directly in
         # an UPDATE statement, so in the MySQL visitor we redefine this to do that.
@@ -845,6 +932,8 @@ module Arel # :nodoc: all
             stmt.orders = []
             stmt.wheres = [Nodes::In.new(o.key, [build_subselect(o.key, o)])]
             stmt.relation = o.relation.left if has_join_sources?(o)
+            stmt.groups = o.groups unless o.groups.empty?
+            stmt.havings = o.havings unless o.havings.empty?
             stmt
           else
             o
@@ -859,6 +948,8 @@ module Arel # :nodoc: all
           core.froms       = o.relation
           core.wheres      = o.wheres
           core.projections = [key]
+          core.groups      = o.groups unless o.groups.empty?
+          core.havings     = o.havings unless o.havings.empty?
           stmt.limit       = o.limit
           stmt.offset      = o.offset
           stmt.orders      = o.orders
@@ -918,19 +1009,7 @@ module Arel # :nodoc: all
         def collect_ctes(children, collector)
           children.each_with_index do |child, i|
             collector << ", " unless i == 0
-
-            case child
-            when Arel::Nodes::As
-              name = child.left.name
-              relation = child.right
-            when Arel::Nodes::TableAlias
-              name = child.name
-              relation = child.relation
-            end
-
-            collector << quote_table_name(name)
-            collector << " AS "
-            visit relation, collector
+            visit child.to_cte, collector
           end
 
           collector

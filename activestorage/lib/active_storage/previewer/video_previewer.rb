@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "shellwords"
+
 module ActiveStorage
   class Previewer::VideoPreviewer < Previewer
     class << self
@@ -8,7 +10,7 @@ module ActiveStorage
       end
 
       def ffmpeg_exists?
-        return @ffmpeg_exists if defined?(@ffmpeg_exists)
+        return @ffmpeg_exists unless @ffmpeg_exists.nil?
 
         @ffmpeg_exists = system(ffmpeg_path, "-version", out: File::NULL, err: File::NULL)
       end

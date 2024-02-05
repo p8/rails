@@ -6,10 +6,9 @@ require "uri/common"
 
 module ActiveSupport
   module Cache
-    # A cache store implementation which stores everything on the filesystem.
+    # = \File \Cache \Store
     #
-    # FileStore implements the Strategy::LocalCache strategy which implements
-    # an in-memory cache inside of a block.
+    # A cache store implementation which stores everything on the filesystem.
     class FileStore < Store
       attr_reader :cache_path
 
@@ -46,27 +45,51 @@ module ActiveSupport
         end
       end
 
-      # Increments an already existing integer value that is stored in the cache.
-      # If the key is not found nothing is done.
+      # Increment a cached integer value. Returns the updated value.
+      #
+      # If the key is unset, it starts from +0+:
+      #
+      #   cache.increment("foo") # => 1
+      #   cache.increment("bar", 100) # => 100
+      #
+      # To set a specific value, call #write:
+      #
+      #   cache.write("baz", 5)
+      #   cache.increment("baz") # => 6
+      #
       def increment(name, amount = 1, options = nil)
         modify_value(name, amount, options)
       end
 
-      # Decrements an already existing integer value that is stored in the cache.
-      # If the key is not found nothing is done.
+      # Decrement a cached integer value. Returns the updated value.
+      #
+      # If the key is unset, it will be set to +-amount+.
+      #
+      #   cache.decrement("foo") # => -1
+      #
+      # To set a specific value, call #write:
+      #
+      #   cache.write("baz", 5)
+      #   cache.decrement("baz") # => 4
+      #
       def decrement(name, amount = 1, options = nil)
         modify_value(name, -amount, options)
       end
 
       def delete_matched(matcher, options = nil)
         options = merged_options(options)
+        matcher = key_matcher(matcher, options)
+
         instrument(:delete_matched, matcher.inspect) do
-          matcher = key_matcher(matcher, options)
           search_dir(cache_path) do |path|
             key = file_path_key(path)
             delete_entry(path, **options) if key.match(matcher)
           end
         end
+      end
+
+      def inspect # :nodoc:
+        "#<#{self.class.name} cache_path=#{@cache_path}, options=#{@options.inspect}>"
       end
 
       private
@@ -106,6 +129,8 @@ module ActiveSupport
               raise if File.exist?(key)
               false
             end
+          else
+            false
           end
         end
 
@@ -152,7 +177,7 @@ module ActiveSupport
 
         # Translate a file path into a key.
         def file_path_key(path)
-          fname = path[cache_path.to_s.size..-1].split(File::SEPARATOR, 4).last
+          fname = path[cache_path.to_s.size..-1].split(File::SEPARATOR, 4).last.delete(File::SEPARATOR)
           URI.decode_www_form_component(fname, Encoding::UTF_8)
         end
 
@@ -182,17 +207,24 @@ module ActiveSupport
           end
         end
 
-        # Modifies the amount of an already existing integer value that is stored in the cache.
-        # If the key is not found nothing is done.
+        # Modifies the amount of an integer value that is stored in the cache.
+        # If the key is not found it is created and set to +amount+.
         def modify_value(name, amount, options)
-          file_name = normalize_key(name, options)
+          options = merged_options(options)
+          key = normalize_key(name, options)
+          version = normalize_version(name, options)
+          amount = Integer(amount)
 
-          lock_file(file_name) do
-            options = merged_options(options)
+          lock_file(key) do
+            entry = read_entry(key, **options)
 
-            if num = read(name, options)
-              num = num.to_i + amount
-              write(name, num, options)
+            if !entry || entry.expired? || entry.mismatched?(version)
+              write(name, amount, options)
+              amount
+            else
+              num = entry.value.to_i + amount
+              entry = Entry.new(num, expires_at: entry.expires_at, version: entry.version)
+              write_entry(key, entry)
               num
             end
           end

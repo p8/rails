@@ -43,6 +43,10 @@ module Rails
           type, attr_options = *parse_type_and_options(type)
           type = type.to_sym if type
 
+          if dangerous_name?(name)
+            raise Error, "Could not generate field '#{name}', as it is already defined by Active Record."
+          end
+
           if type && !valid_type?(type)
             raise Error, "Could not generate field '#{name}' with unknown type '#{type}'."
           end
@@ -60,8 +64,14 @@ module Rails
           new(name, type, index_type, attr_options)
         end
 
+        def dangerous_name?(name)
+          defined?(ActiveRecord::Base) &&
+            ActiveRecord::Base.dangerous_attribute_method?(name)
+        end
+
         def valid_type?(type)
           DEFAULT_TYPES.include?(type.to_s) ||
+            !defined?(ActiveRecord::Base) ||
             ActiveRecord::Base.connection.valid_type?(type)
         end
 
@@ -78,6 +88,8 @@ module Rails
           # when declaring options curly brackets should be used
           def parse_type_and_options(type)
             case type
+            when /(text|binary)\{([a-z]+)\}/
+              return $1, size: $2.to_sym
             when /(string|text|binary|integer)\{(\d+)\}/
               return $1, limit: $2.to_i
             when /decimal\{(\d+)[,.-](\d+)\}/
@@ -106,9 +118,9 @@ module Rails
         @field_type ||= case type
                         when :integer                  then :number_field
                         when :float, :decimal          then :text_field
-                        when :time                     then :time_select
-                        when :datetime, :timestamp     then :datetime_select
-                        when :date                     then :date_select
+                        when :time                     then :time_field
+                        when :datetime, :timestamp     then :datetime_field
+                        when :date                     then :date_field
                         when :text                     then :text_area
                         when :rich_text                then :rich_text_area
                         when :boolean                  then :check_box
@@ -123,8 +135,8 @@ module Rails
                      when :integer                     then 1
                      when :float                       then 1.5
                      when :decimal                     then "9.99"
-                     when :datetime, :timestamp, :time then Time.now.to_s(:db)
-                     when :date                        then Date.today.to_s(:db)
+                     when :datetime, :timestamp, :time then Time.now.to_fs(:db)
+                     when :date                        then Date.today.to_fs(:db)
                      when :string                      then name == "type" ? "" : "MyString"
                      when :text                        then "MyText"
                      when :boolean                     then false

@@ -35,7 +35,7 @@ if ActiveRecord::Base.connection.supports_foreign_keys?
         end
 
         test "foreign keys can be created in one query when index is not added" do
-          assert_queries(1) do
+          assert_queries_count(1) do
             @connection.create_table :testings do |t|
               t.references :testing_parent, foreign_key: true, index: false
             end
@@ -61,6 +61,48 @@ if ActiveRecord::Base.connection.supports_foreign_keys?
           fks = @connection.foreign_keys("testings")
           assert_equal([["testings", "testing_parents", "parent_id"]],
                        fks.map { |fk| [fk.from_table, fk.to_table, fk.column] })
+        end
+
+        if ActiveRecord::Base.connection.supports_deferrable_constraints?
+          test "deferrable: false option can be passed" do
+            @connection.create_table :testings do |t|
+              t.references :testing_parent, foreign_key: { deferrable: false }
+            end
+
+            fks = @connection.foreign_keys("testings")
+            assert_equal([["testings", "testing_parents", "testing_parent_id", false]],
+                         fks.map { |fk| [fk.from_table, fk.to_table, fk.column, fk.deferrable] })
+          end
+
+          test "deferrable: :immediate option can be passed" do
+            @connection.create_table :testings do |t|
+              t.references :testing_parent, foreign_key: { deferrable: :immediate }
+            end
+
+            fks = @connection.foreign_keys("testings")
+            assert_equal([["testings", "testing_parents", "testing_parent_id", :immediate]],
+                         fks.map { |fk| [fk.from_table, fk.to_table, fk.column, fk.deferrable] })
+          end
+
+          test "deferrable: :deferred option can be passed" do
+            @connection.create_table :testings do |t|
+              t.references :testing_parent, foreign_key: { deferrable: :deferred }
+            end
+
+            fks = @connection.foreign_keys("testings")
+            assert_equal([["testings", "testing_parents", "testing_parent_id", :deferred]],
+                         fks.map { |fk| [fk.from_table, fk.to_table, fk.column, fk.deferrable] })
+          end
+
+          test "deferrable and on_(delete|update) option can be passed" do
+            @connection.create_table :testings do |t|
+              t.references :testing_parent, foreign_key: { on_update: :cascade, on_delete: :cascade, deferrable: :immediate }
+            end
+
+            fks = @connection.foreign_keys("testings")
+            assert_equal([["testings", "testing_parents", "testing_parent_id", :cascade, :cascade, :immediate]],
+                         fks.map { |fk| [fk.from_table, fk.to_table, fk.column, fk.on_delete, fk.on_update, fk.deferrable] })
+          end
         end
       end
     end
@@ -167,6 +209,24 @@ if ActiveRecord::Base.connection.supports_foreign_keys?
         ensure
           ActiveRecord::Base.pluralize_table_names = original_pluralize_table_names
           @connection.drop_table "testing", if_exists: true
+        end
+
+        test "remove_reference responds to if_exists option" do
+          @connection.create_table :testings
+
+          assert_nothing_raised do
+            @connection.remove_reference :testings, :nonexistent, foreign_key: true, if_exists: true
+          end
+        end
+
+        test "add_reference responds to if_not_exists option" do
+          @connection.create_table :testings do |t|
+            t.references :testing, foreign_key: true
+          end
+
+          assert_nothing_raised do
+            @connection.add_reference :testings, :testing, foreign_key: true, if_not_exists: true
+          end
         end
 
         class CreateDogsMigration < ActiveRecord::Migration::Current

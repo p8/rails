@@ -21,7 +21,7 @@ What is Active Job?
 Active Job is a framework for declaring jobs and making them run on a variety
 of queuing backends. These jobs can be everything from regularly scheduled
 clean-ups, to billing charges, to mailings. Anything that can be chopped up
-into small units of work and run in parallel, really.
+into small units of work and run in parallel.
 
 
 The Purpose of Active Job
@@ -79,6 +79,23 @@ end
 
 Note that you can define `perform` with as many arguments as you want.
 
+If you already have an abstract class and its name differs from `ApplicationJob`, you can pass
+the `--parent` option to indicate you want a different abstract class:
+
+```bash
+$ bin/rails generate job process_payment --parent=payment_job
+```
+
+```ruby
+class ProcessPaymentJob < PaymentJob
+  queue_as :default
+
+  def perform(*args)
+    # Do something later
+  end
+end
+```
+
 ### Enqueue the Job
 
 Enqueue a job using [`perform_later`][] and, optionally, [`set`][]. Like so:
@@ -130,7 +147,7 @@ see the API Documentation for [`ActiveJob::QueueAdapters`][].
 
 ### Setting the Backend
 
-You can easily set your queuing backend:
+You can easily set your queuing backend with [`config.active_job.queue_adapter`]:
 
 ```ruby
 # config/application.rb
@@ -156,6 +173,8 @@ end
 # was configured in `config.active_job.queue_adapter`.
 ```
 
+[`config.active_job.queue_adapter`]: configuring.html#config-active-job-queue-adapter
+
 ### Starting the Backend
 
 Since jobs run in parallel to your Rails application, most queuing libraries
@@ -177,7 +196,7 @@ Here is a noncomprehensive list of documentation:
 Queues
 ------
 
-Most of the adapters support multiple queues. With Active Job you can schedule
+Most adapters support multiple queues. With Active Job you can schedule
 the job to run on a specific queue using [`queue_as`][]:
 
 ```ruby
@@ -188,7 +207,7 @@ end
 ```
 
 You can prefix the queue name for all your jobs using
-`config.active_job.queue_name_prefix` in `application.rb`:
+[`config.active_job.queue_name_prefix`][] in `application.rb`:
 
 ```ruby
 # config/application.rb
@@ -225,7 +244,7 @@ end
 ```
 
 The default queue name prefix delimiter is '\_'.  This can be changed by setting
-`config.active_job.queue_name_delimiter` in `application.rb`:
+[`config.active_job.queue_name_delimiter`][] in `application.rb`:
 
 ```ruby
 # config/application.rb
@@ -247,13 +266,6 @@ end
 # Now your job will run on queue production.low_priority on your
 # production environment and on staging.low_priority
 # on your staging environment
-```
-
-If you want more control on what queue a job will be run you can pass a `:queue`
-option to `set`:
-
-```ruby
-MyJob.set(queue: :another_queue).perform_later(record)
 ```
 
 To control the queue from the job level you can pass a block to `queue_as`. The
@@ -281,10 +293,66 @@ end
 ProcessVideoJob.perform_later(Video.last)
 ```
 
+If you want more control on what queue a job will be run you can pass a `:queue`
+option to `set`:
+
+```ruby
+MyJob.set(queue: :another_queue).perform_later(record)
+```
+
 NOTE: Make sure your queuing backend "listens" on your queue name. For some
 backends you need to specify the queues to listen to.
 
+[`config.active_job.queue_name_delimiter`]: configuring.html#config-active-job-queue-name-delimiter
+[`config.active_job.queue_name_prefix`]: configuring.html#config-active-job-queue-name-prefix
 [`queue_as`]: https://api.rubyonrails.org/classes/ActiveJob/QueueName/ClassMethods.html#method-i-queue_as
+
+Priority
+--------------
+
+Some adapters support priorities at the job level, where jobs can be prioritized relative to others in the queue or across all queues.
+
+You can schedule a job to run with a specific priority using [`queue_with_priority`][]:
+
+```ruby
+class GuestsCleanupJob < ApplicationJob
+  queue_with_priority 10
+  # ...
+end
+```
+
+Note that this will not have any effect with adapters that do not support priorities.
+
+Similar to `queue_as`, you can also pass a block to `queue_with_priority` to be evaluated in the job context:
+
+```ruby
+class ProcessVideoJob < ApplicationJob
+  queue_with_priority do
+    video = self.arguments.first
+    if video.owner.premium?
+      0
+    else
+      10
+    end
+  end
+
+  def perform(video)
+    # Process video
+  end
+end
+```
+
+```ruby
+ProcessVideoJob.perform_later(Video.last)
+```
+
+You can also pass a `:priority` option to `set`:
+
+```ruby
+MyJob.set(priority: 50).perform_later(record)
+```
+
+[`queue_with_priority`]: https://api.rubyonrails.org/classes/ActiveJob/QueuePriority/ClassMethods.html#method-i-queue_with_priority
 
 Callbacks
 ---------
@@ -322,7 +390,7 @@ class ApplicationJob < ActiveJob::Base
 end
 ```
 
-### Available callbacks
+### Available Callbacks
 
 * [`before_enqueue`][]
 * [`around_enqueue`][]
@@ -373,7 +441,7 @@ UserMailer.welcome(@user).deliver_later # Email will be localized to Esperanto.
 ```
 
 
-Supported types for arguments
+Supported Types for Arguments
 ----------------------------
 
 ActiveJob supports the following types of arguments by default:
@@ -394,7 +462,7 @@ ActiveJob supports the following types of arguments by default:
 
 ### GlobalID
 
-Active Job supports [GlobalID](https://github.com/rails/globalid/blob/master/README.md) for parameters. This makes it possible to pass live
+Active Job supports [GlobalID](https://github.com/rails/globalid/blob/main/README.md) for parameters. This makes it possible to pass live
 Active Record objects to your job instead of class/id pairs, which you then have
 to manually deserialize. Before, jobs would look like this:
 
@@ -492,7 +560,7 @@ If an exception from a job is not rescued, then the job is referred to as "faile
 
 [`rescue_from`]: https://api.rubyonrails.org/classes/ActiveSupport/Rescuable/ClassMethods.html#method-i-rescue_from
 
-### Retrying or Discarding failed jobs
+### Retrying or Discarding Failed Jobs
 
 A failed job will not be retried, unless configured otherwise.
 
@@ -529,3 +597,8 @@ Job Testing
 
 You can find detailed instructions on how to test your jobs in the
 [testing guide](testing.html#testing-jobs).
+
+Debugging
+---------
+
+If you need help figuring out where jobs are coming from, you can enable [verbose logging](debugging_rails_applications.html#verbose-enqueue-logs).

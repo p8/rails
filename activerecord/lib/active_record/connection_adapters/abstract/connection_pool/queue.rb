@@ -6,6 +6,8 @@ require "monitor"
 module ActiveRecord
   module ConnectionAdapters
     class ConnectionPool
+      # = Active Record Connection Pool \Queue
+      #
       # Threadsafe, fair, LIFO queue.  Meant to be used by ConnectionPool
       # with which it shares a Monitor.
       class Queue
@@ -110,7 +112,7 @@ module ActiveRecord
           def wait_poll(timeout)
             @num_waiting += 1
 
-            t0 = Concurrent.monotonic_time
+            t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
             elapsed = 0
             loop do
               ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
@@ -119,7 +121,7 @@ module ActiveRecord
 
               return remove if any?
 
-              elapsed = Concurrent.monotonic_time - t0
+              elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
               if elapsed >= timeout
                 msg = "could not obtain a connection from the pool within %0.3f seconds (waited %0.3f seconds); all pooled connections were in use" %
                   [timeout, elapsed]

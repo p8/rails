@@ -10,10 +10,12 @@ module ActiveRecord
           end
 
           def cast_value(value)
-            time = super
-            return time if time.is_a?(ActiveSupport::TimeWithZone)
+            return if value.blank?
 
-            # While in UTC mode, the PG gem may not return times back in "UTC" even if they were provided to Postgres in UTC.
+            time = super
+            return time if time.is_a?(ActiveSupport::TimeWithZone) || !time.acts_like?(:time)
+
+            # While in UTC mode, the PG gem may not return times back in "UTC" even if they were provided to PostgreSQL in UTC.
             # We prefer times always in UTC, so here we convert back.
             if is_utc?
               time.getutc

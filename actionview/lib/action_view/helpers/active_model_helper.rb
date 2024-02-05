@@ -4,11 +4,11 @@ require "active_support/core_ext/module/attribute_accessors"
 require "active_support/core_ext/enumerable"
 
 module ActionView
-  # = Active Model Helpers
   module Helpers # :nodoc:
     module ActiveModelHelper
     end
 
+    # = Active \Model Instance Tag \Helpers
     module ActiveModelInstanceTag
       def object
         @active_model_object ||= begin
@@ -27,7 +27,7 @@ module ActionView
 
       def error_wrapping(html_tag)
         if object_has_errors?
-          Base.field_error_proc.call(html_tag, self)
+          @template_object.instance_exec(html_tag, self, &Base.field_error_proc)
         else
           html_tag
         end

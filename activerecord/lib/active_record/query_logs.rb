@@ -1,13 +1,25 @@
 # frozen_string_literal: true
 
 require "active_support/core_ext/module/attribute_accessors_per_thread"
+require "active_record/query_logs_formatter"
 
 module ActiveRecord
   # = Active Record Query Logs
   #
-  # Automatically tag SQL queries with runtime information.
+  # Automatically append comments to SQL queries with runtime information tags. This can be used to trace troublesome
+  # SQL statements back to the application code that generated these statements.
   #
-  # Default tags available for use:
+  # Query logs can be enabled via \Rails configuration in <tt>config/application.rb</tt> or an initializer:
+  #
+  #     config.active_record.query_log_tags_enabled = true
+  #
+  # By default the name of the application, the name and action of the controller, or the name of the job are logged.
+  # The default format is {SQLCommenter}[https://open-telemetry.github.io/opentelemetry-sqlcommenter/].
+  # The tags shown in a query comment can be configured via \Rails configuration:
+  #
+  #     config.active_record.query_log_tags = [ :application, :controller, :action, :job ]
+  #
+  # Active Record defines default tags available for use:
   #
   # * +application+
   # * +pid+
@@ -15,46 +27,40 @@ module ActiveRecord
   # * +db_host+
   # * +database+
   #
-  # _Action Controller and Active Job tags are also defined when used in Rails:_
+  # Action Controller adds default tags when loaded:
   #
   # * +controller+
   # * +action+
+  # * +namespaced_controller+
+  #
+  # Active Job adds default tags when loaded:
+  #
   # * +job+
   #
-  # The tags used in a query can be configured directly:
+  # New comment tags can be defined by adding them in a +Hash+ to the tags +Array+. Tags can have dynamic content by
+  # setting a +Proc+ or lambda value in the +Hash+, and can reference any value stored by \Rails in the +context+ object.
+  # ActiveSupport::CurrentAttributes can be used to store application values. Tags with +nil+ values are
+  # omitted from the query comment.
   #
-  #     ActiveRecord::QueryLogs.tags = [ :application, :controller, :action, :job ]
-  #
-  # or via Rails configuration:
-  #
-  #     config.active_record.query_log_tags = [ :application, :controller, :action, :job ]
-  #
-  # To add new comment tags, add a hash to the tags array containing the keys and values you
-  # want to add to the comment. Dynamic content can be created by setting a proc or lambda value in a hash,
-  # and can reference any value stored in the +context+ object.
+  # Escaping is performed on the string returned, however untrusted user input should not be used.
   #
   # Example:
   #
-  #    tags = [
-  #      :application,
-  #      {
-  #        custom_tag: ->(context) { context[:controller].controller_name },
-  #        custom_value: -> { Custom.value },
-  #      }
-  #    ]
-  #    ActiveRecord::QueryLogs.tags = tags
+  #     config.active_record.query_log_tags = [
+  #       :namespaced_controller,
+  #       :action,
+  #       :job,
+  #       {
+  #         request_id: ->(context) { context[:controller]&.request&.request_id },
+  #         job_id: ->(context) { context[:job]&.job_id },
+  #         tenant_id: -> { Current.tenant&.id },
+  #         static: "value",
+  #       },
+  #     ]
   #
-  # The QueryLogs +context+ can be manipulated via +update_context+ & +set_context+ methods.
-  #
-  # Direct updates to a context value:
-  #
-  #    ActiveRecord::QueryLogs.update_context(foo: Bar.new)
-  #
-  # Temporary updates limited to the execution of a block:
-  #
-  #    ActiveRecord::QueryLogs.set_context(foo: Bar.new) do
-  #      posts = Post.all
-  #    end
+  # By default the name of the application, the name and action of the controller, or the name of the job are logged
+  # using the {SQLCommenter}[https://open-telemetry.github.io/opentelemetry-sqlcommenter/] format. This can be changed
+  # via {config.active_record.query_log_tags_format}[https://guides.rubyonrails.org/configuring.html#config-active-record-query-log-tags-format]
   #
   # Tag comments can be prepended to the query:
   #
@@ -63,120 +69,88 @@ module ActiveRecord
   # For applications where the content will not change during the lifetime of
   # the request or job execution, the tags can be cached for reuse in every query:
   #
-  #    ActiveRecord::QueryLogs.cache_query_log_tags = true
-  #
-  # This option can be set during application configuration or in a Rails initializer:
-  #
   #    config.active_record.cache_query_log_tags = true
   module QueryLogs
     mattr_accessor :taggings, instance_accessor: false, default: {}
     mattr_accessor :tags, instance_accessor: false, default: [ :application ]
     mattr_accessor :prepend_comment, instance_accessor: false, default: false
     mattr_accessor :cache_query_log_tags, instance_accessor: false, default: false
+    mattr_accessor :tags_formatter, instance_accessor: false
     thread_mattr_accessor :cached_comment, instance_accessor: false
 
-    class NullObject # :nodoc:
-      def method_missing(method, *args, &block)
-        NullObject.new
-      end
-
-      def nil?
-        true
-      end
-
-      private
-        def respond_to_missing?(method, include_private = false)
-          true
-        end
-    end
-
     class << self
-      # Updates the context used to construct tags in the SQL comment.
-      # Resets the cached comment if <tt>cache_query_log_tags</tt> is +true+.
-      def update_context(**options)
-        context.merge!(**options.symbolize_keys)
+      def call(sql, connection) # :nodoc:
+        comment = self.comment(connection)
+
+        if comment.blank?
+          sql
+        elsif prepend_comment
+          "#{comment} #{sql}"
+        else
+          "#{sql} #{comment}"
+        end
+      end
+
+      def clear_cache # :nodoc:
         self.cached_comment = nil
       end
 
-      # Updates the context used to construct tags in the SQL comment during
-      # execution of the provided block. Resets the provided keys to their
-      # previous value once the block exits.
-      def set_context(**options)
-        keys = options.keys
-        previous_context = keys.zip(context.values_at(*keys)).to_h
-        update_context(**options)
-        yield if block_given?
-      ensure
-        update_context(**previous_context)
+      # Updates the formatter to be what the passed in format is.
+      def update_formatter(format)
+        self.tags_formatter =
+          case format
+          when :legacy
+            LegacyFormatter.new
+          when :sqlcommenter
+            SQLCommenter.new
+          else
+            raise ArgumentError, "Formatter is unsupported: #{formatter}"
+          end
       end
 
-      # Temporarily tag any query executed within `&block`. Can be nested.
-      def with_tag(tag, &block)
-        inline_tags.push(tag)
-        yield if block_given?
-      ensure
-        inline_tags.pop
-      end
-
-      def call(sql) # :nodoc:
-        parts = self.comments
-        if prepend_comment
-          parts << sql
-        else
-          parts.unshift(sql)
-        end
-        parts.join(" ")
-      end
+      ActiveSupport::ExecutionContext.after_change { ActiveRecord::QueryLogs.clear_cache }
 
       private
-        # Returns an array of comments which need to be added to the query, comprised
-        # of configured and inline tags.
-        def comments
-          [ comment, inline_comment ].compact
-        end
-
         # Returns an SQL comment +String+ containing the query log tags.
         # Sets and returns a cached comment if <tt>cache_query_log_tags</tt> is +true+.
-        def comment
+        def comment(connection)
           if cache_query_log_tags
-            self.cached_comment ||= uncached_comment
+            self.cached_comment ||= uncached_comment(connection)
           else
-            uncached_comment
+            uncached_comment(connection)
           end
         end
 
-        def uncached_comment
-          content = tag_content
+        def formatter
+          self.tags_formatter || self.update_formatter(:legacy)
+        end
+
+        def uncached_comment(connection)
+          content = tag_content(connection)
+
           if content.present?
             "/*#{escape_sql_comment(content)}*/"
           end
         end
 
-        # Returns a +String+ containing any inline comments from +with_tag+.
-        def inline_comment
-          return nil unless inline_tags.present?
-          "/*#{escape_sql_comment(inline_tag_content)}*/"
-        end
-
-        # Return the set of active inline tags from +with_tag+.
-        def inline_tags
-          if context[:inline_tags].nil?
-            context[:inline_tags] = []
-          else
-            context[:inline_tags]
-          end
-        end
-
-        def context
-          Thread.current[:active_record_query_log_tags_context] ||= Hash.new { NullObject.new }
-        end
-
         def escape_sql_comment(content)
-          content.to_s.gsub(%r{ (/ (?: | \g<1>) \*) \+? \s* | \s* (\* (?: | \g<2>) /) }x, "")
+          # Sanitize a string to appear within a SQL comment
+          # For compatibility, this also surrounding "/*+", "/*", and "*/"
+          # characters, possibly with single surrounding space.
+          # Then follows that by replacing any internal "*/" or "/ *" with
+          # "* /" or "/ *"
+          comment = content.to_s.dup
+          comment.gsub!(%r{\A\s*/\*\+?\s?|\s?\*/\s*\Z}, "")
+          comment.gsub!("*/", "* /")
+          comment.gsub!("/*", "/ *")
+          comment
         end
 
-        def tag_content
-          tags.flat_map { |i| [*i] }.filter_map do |tag|
+        def tag_content(connection)
+          context = ActiveSupport::ExecutionContext.to_h
+          context[:connection] ||= connection
+
+          pairs = tags.flat_map { |i| [*i] }.filter_map do |tag|
             key, handler = tag
             handler ||= taggings[key]
 
@@ -191,12 +165,9 @@ module ActiveRecord
             else
               handler
             end
-            "#{key}:#{val}" unless val.nil?
-          end.join(",")
-        end
-
-        def inline_tag_content
-          inline_tags.join
+            [key, val] unless val.nil?
+          end
+          self.formatter.format(pairs)
         end
     end
   end

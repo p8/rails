@@ -6,7 +6,13 @@ module ActiveRecord
   module ConnectionAdapters
     class QuotingTest < ActiveRecord::TestCase
       def setup
-        @quoter = Class.new { include Quoting }.new
+        @quoter = Class.new {
+          include Quoting
+
+          def default_timezone
+            ActiveRecord.default_timezone
+          end
+        }.new
       end
 
       def test_quoted_true
@@ -43,27 +49,20 @@ module ActiveRecord
 
       def test_quoted_date
         t = Date.today
-        assert_equal t.to_s(:db), @quoter.quoted_date(t)
+        assert_equal t.to_fs(:db), @quoter.quoted_date(t)
       end
 
       def test_quoted_timestamp_utc
         with_timezone_config default: :utc do
           t = Time.now.change(usec: 0)
-          assert_equal t.getutc.to_s(:db), @quoter.quoted_date(t)
+          assert_equal t.getutc.to_fs(:db), @quoter.quoted_date(t)
         end
       end
 
       def test_quoted_timestamp_local
         with_timezone_config default: :local do
           t = Time.now.change(usec: 0)
-          assert_equal t.getlocal.to_s(:db), @quoter.quoted_date(t)
-        end
-      end
-
-      def test_quoted_timestamp_crazy
-        with_timezone_config default: :asdfasdf do
-          t = Time.now.change(usec: 0)
-          assert_equal t.getlocal.to_s(:db), @quoter.quoted_date(t)
+          assert_equal t.getlocal.to_fs(:db), @quoter.quoted_date(t)
         end
       end
 
@@ -72,7 +71,7 @@ module ActiveRecord
           t = Time.now.change(usec: 0)
 
           expected = t.change(year: 2000, month: 1, day: 1)
-          expected = expected.getutc.to_s(:db).slice(11..-1)
+          expected = expected.getutc.to_fs(:db).slice(11..-1)
 
           assert_equal expected, @quoter.quoted_time(t)
         end
@@ -83,7 +82,7 @@ module ActiveRecord
           t = Time.now.change(usec: 0)
 
           expected = t.change(year: 2000, month: 1, day: 1)
-          expected = expected.getlocal.to_s(:db).sub("2000-01-01 ", "")
+          expected = expected.getlocal.to_fs(:db).sub("2000-01-01 ", "")
 
           assert_equal expected, @quoter.quoted_time(t)
         end
@@ -95,7 +94,7 @@ module ActiveRecord
             t = Time.new(2000, 7, 1, 0, 0, 0, "+04:30")
 
             expected = t.change(year: 2000, month: 1, day: 1)
-            expected = expected.getutc.to_s(:db).slice(11..-1)
+            expected = expected.getutc.to_fs(:db).slice(11..-1)
 
             assert_equal expected, @quoter.quoted_time(t)
           end
@@ -108,28 +107,17 @@ module ActiveRecord
             t = Time.new(2000, 7, 1, 0, 0, 0, "+04:30")
 
             expected = t.change(year: 2000, month: 1, day: 1)
-            expected = expected.getlocal.to_s(:db).slice(11..-1)
+            expected = expected.getlocal.to_fs(:db).slice(11..-1)
 
             assert_equal expected, @quoter.quoted_time(t)
           end
         end
       end
 
-      def test_quoted_time_crazy
-        with_timezone_config default: :asdfasdf do
-          t = Time.now.change(usec: 0)
-
-          expected = t.change(year: 2000, month: 1, day: 1)
-          expected = expected.getlocal.to_s(:db).sub("2000-01-01 ", "")
-
-          assert_equal expected, @quoter.quoted_time(t)
-        end
-      end
-
       def test_quoted_datetime_utc
         with_timezone_config default: :utc do
           t = Time.now.change(usec: 0).to_datetime
-          assert_equal t.getutc.to_s(:db), @quoter.quoted_date(t)
+          assert_equal t.getutc.to_fs(:db), @quoter.quoted_date(t)
         end
       end
 
@@ -138,7 +126,7 @@ module ActiveRecord
       def test_quoted_datetime_local
         with_timezone_config default: :local do
           t = Time.now.change(usec: 0).to_datetime
-          assert_equal t.to_s(:db), @quoter.quoted_date(t)
+          assert_equal t.to_fs(:db), @quoter.quoted_date(t)
         end
       end
 
@@ -185,10 +173,10 @@ module ActiveRecord
         assert_equal "'Object'", @quoter.quote(Object)
       end
 
-      def test_crazy_object
-        crazy = Object.new
+      def test_quote_object_instance
+        object = Object.new
         e = assert_raises(TypeError) do
-          @quoter.quote(crazy)
+          @quoter.quote(object)
         end
         assert_equal "can't quote Object", e.message
       end
@@ -203,7 +191,8 @@ module ActiveRecord
       end
 
       def test_quote_duration
-        assert_equal "1800", @quoter.quote(30.minutes)
+        expected = assert_deprecated(ActiveRecord.deprecator) { @quoter.quote(30.minutes) }
+        assert_equal "1800", expected
       end
     end
 
@@ -218,7 +207,7 @@ module ActiveRecord
 
       def test_type_cast_date
         date = Date.today
-        if current_adapter?(:Mysql2Adapter)
+        if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
           expected = date
         else
           expected = @conn.quoted_date(date)
@@ -228,7 +217,7 @@ module ActiveRecord
 
       def test_type_cast_time
         time = Time.now
-        if current_adapter?(:Mysql2Adapter)
+        if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
           expected = time
         else
           expected = @conn.quoted_date(time)
@@ -249,6 +238,10 @@ module ActiveRecord
         obj = Class.new.new
         assert_raise(TypeError) { @conn.type_cast(obj) }
       end
+
+      def test_type_cast_duration_should_raise_error
+        assert_raise(TypeError) { @conn.type_cast(1.hour) }
+      end
     end
 
     class QuoteBooleanTest < ActiveRecord::TestCase
@@ -264,39 +257,6 @@ module ActiveRecord
       def test_type_cast_returns_frozen_value
         assert_predicate @connection.type_cast(true), :frozen?
         assert_predicate @connection.type_cast(false), :frozen?
-      end
-    end
-
-    if supports_datetime_with_precision?
-      class QuoteARBaseTest < ActiveRecord::TestCase
-        class DatetimePrimaryKey < ActiveRecord::Base
-        end
-
-        def setup
-          @time = ::Time.utc(2017, 2, 14, 12, 34, 56, 789999)
-          @connection = ActiveRecord::Base.connection
-          @connection.create_table :datetime_primary_keys, id: :datetime, precision: 3, force: true
-        end
-
-        def teardown
-          @connection.drop_table :datetime_primary_keys, if_exists: true
-        end
-
-        def test_quote_ar_object
-          value = DatetimePrimaryKey.new(id: @time)
-          expected = "'2017-02-14 12:34:56.789000'"
-          assert_deprecated do
-            assert_equal expected, @connection.quote(value)
-          end
-        end
-
-        def test_type_cast_ar_object
-          value = DatetimePrimaryKey.new(id: @time)
-          expected = @connection.type_cast(value.id)
-          assert_deprecated do
-            assert_equal expected, @connection.type_cast(value)
-          end
-        end
       end
     end
   end

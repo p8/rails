@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "pp"
 require "cases/helper"
 require "models/computer"
 require "models/developer"
@@ -32,11 +33,21 @@ require "models/discount"
 require "models/line_item"
 require "models/shipping_line"
 require "models/essay"
+require "models/member"
+require "models/membership"
+require "models/sharded"
+require "models/cpk"
+require "models/member_detail"
+require "models/organization"
+require "models/dog"
+require "models/other_dog"
+
 
 class AssociationsTest < ActiveRecord::TestCase
   fixtures :accounts, :companies, :developers, :projects, :developers_projects,
            :computers, :people, :readers, :authors, :author_addresses, :author_favorites,
-           :comments, :posts
+           :comments, :posts, :sharded_blogs, :sharded_blog_posts, :sharded_comments, :sharded_tags, :sharded_blog_posts_tags,
+           :cpk_orders, :cpk_books, :cpk_reviews
 
   def test_eager_loading_should_not_change_count_of_children
     liquid = Liquid.create(name: "salty")
@@ -70,6 +81,16 @@ class AssociationsTest < ActiveRecord::TestCase
     assert_equal "Deck", ship.parts[0].name
   end
 
+  def test_loading_cpk_association_when_persisted_and_in_memory_differ
+    order = Cpk::Order.create!(id: [1, 2], status: "paid")
+    book = order.books.create!(id: [3, 4], title: "Book")
+
+    Cpk::Book.find(book.id).update_columns(title: "A different title")
+    order.books.load
+
+    assert_equal [3, 4], book.id
+  end
+
   def test_include_with_order_works
     assert_nothing_raised { Account.all.merge!(order: "id", includes: :firm).first }
     assert_nothing_raised { Account.all.merge!(order: :id, includes: :firm).first }
@@ -93,13 +114,13 @@ class AssociationsTest < ActiveRecord::TestCase
     firm = Firm.new("name" => "A New Firm, Inc")
     firm.save
     firm.clients.each { } # forcing to load all clients
-    assert firm.clients.empty?, "New firm shouldn't have client objects"
+    assert_predicate firm.clients, :empty?, "New firm shouldn't have client objects"
     assert_equal 0, firm.clients.size, "New firm should have 0 clients"
 
     client = Client.new("name" => "TheClient.com", "firm_id" => firm.id)
     client.save
 
-    assert firm.clients.empty?, "New firm should have cached no client objects"
+    assert_predicate firm.clients, :empty?, "New firm should have cached no client objects"
     assert_equal 0, firm.clients.size, "New firm should have cached 0 clients count"
 
     firm.clients.reload
@@ -122,10 +143,323 @@ class AssociationsTest < ActiveRecord::TestCase
     firm = companies(:first_firm)
     assert_equal [:foo], firm.association_with_references.references_values
   end
+
+  def test_belongs_to_a_model_with_composite_foreign_key_finds_associated_record
+    comment = sharded_comments(:great_comment_blog_post_one)
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+
+    assert_equal(blog_post, comment.blog_post)
+  end
+
+  def test_belongs_to_a_cpk_model_by_id_attribute
+    order = cpk_orders(:cpk_groceries_order_1)
+    _order_shop_id, order_id = order.id
+    agreement = Cpk::OrderAgreement.create(order_id: order_id, signature: "signed")
+
+    assert_equal(order, agreement.order)
+  end
+
+  def test_belongs_to_a_model_with_composite_primary_key_uses_composite_pk_in_sql
+    comment = sharded_comments(:great_comment_blog_post_one)
+
+    sql = capture_sql do
+      comment.blog_post
+    end.first
+
+    assert_match(/#{Regexp.escape(Sharded::BlogPost.connection.quote_table_name("sharded_blog_posts.blog_id"))} =/, sql)
+    assert_match(/#{Regexp.escape(Sharded::BlogPost.connection.quote_table_name("sharded_blog_posts.id"))} =/, sql)
+  end
+
+  def test_querying_by_whole_associated_records_using_query_constraints
+    comments = [sharded_comments(:great_comment_blog_post_one), sharded_comments(:great_comment_blog_post_two)]
+
+    blog_posts = Sharded::BlogPost.where(comments: comments).to_a
+
+    expected_posts = [sharded_blog_posts(:great_post_blog_one), sharded_blog_posts(:great_post_blog_two)]
+    assert_equal(expected_posts.map(&:id).sort, blog_posts.map(&:id).sort)
+  end
+
+  def test_querying_by_single_associated_record_works_using_query_constraints
+    comments = [sharded_comments(:great_comment_blog_post_one), sharded_comments(:great_comment_blog_post_two)]
+
+    blog_posts = Sharded::BlogPost.where(comments: comments.last).to_a
+
+    expected_posts = [sharded_blog_posts(:great_post_blog_two)]
+    assert_equal(expected_posts.map(&:id).sort, blog_posts.map(&:id).sort)
+  end
+
+  def test_querying_by_relation_with_composite_key
+    expected_posts = [sharded_blog_posts(:great_post_blog_one), sharded_blog_posts(:great_post_blog_two)]
+
+    blog_posts = Sharded::BlogPost.where(comments: Sharded::Comment.where(body: "I really enjoyed the post!")).to_a
+
+    assert_equal(expected_posts.map(&:id).sort, blog_posts.map(&:id).sort)
+  end
+
+  def test_has_many_with_foreign_key_as_an_array_raises
+    expected_message = <<~MSG.squish
+      Passing [:blog_id, :blog_post_id] array to :foreign_key option
+      on the Sharded::BlogPost#broken_array_fk_comments association is not supported.
+      Use the query_constraints: [:blog_id, :blog_post_id] option instead to represent a composite foreign key.
+    MSG
+    assert_raises ArgumentError, match: expected_message do
+      Sharded::BlogPost.has_many :broken_array_fk_comments,
+        class_name: "Sharded::Comment", foreign_key: [:blog_id, :blog_post_id]
+    end
+  end
+
+  def test_belongs_to_with_foreign_key_as_an_array_raises
+    expected_message = <<~MSG.squish
+      Passing [:blog_id, :blog_post_id] array to :foreign_key option
+      on the Sharded::Comment#broken_array_fk_blog_post association is not supported.
+      Use the query_constraints: [:blog_id, :blog_post_id] option instead to represent a composite foreign key.
+    MSG
+    assert_raises ArgumentError, match: expected_message do
+      Sharded::Comment.belongs_to :broken_array_fk_blog_post,
+        class_name: "Sharded::Blog", foreign_key: [:blog_id, :blog_post_id]
+    end
+  end
+
+  def test_has_many_association_with_composite_foreign_key_loads_records
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+
+    comments = blog_post.comments.to_a
+    assert_includes(comments, sharded_comments(:wow_comment_blog_post_one))
+    assert_includes(comments, sharded_comments(:great_comment_blog_post_one))
+  end
+
+  def test_cpk_model_has_many_records_by_id_attribute
+    order = cpk_orders(:cpk_groceries_order_1)
+    _order_shop_id, order_id = order.id
+    agreements = 2.times.map { Cpk::OrderAgreement.create(order_id: order_id, signature: "signed") }
+
+    assert_equal(agreements.sort, order.order_agreements.to_a.sort)
+  end
+
+  def test_has_many_association_from_a_model_with_query_constraints_different_from_the_association
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    blog_post = Sharded::BlogPostWithRevision.find(blog_post.id)
+    comments = []
+    expected_comments = Sharded::Comment.where(blog_id: blog_post.blog_id, blog_post_id: blog_post.id).to_a
+
+    sql = capture_sql do
+      comments = blog_post.comments.to_a
+    end.first
+
+    assert_match(/WHERE .*#{Regexp.escape(Sharded::Comment.connection.quote_table_name("sharded_comments.blog_id"))} =/, sql)
+    assert_not_empty(comments)
+    assert_equal(expected_comments.sort, comments.sort)
+  end
+
+  def test_query_constraints_over_three_without_defining_explicit_foreign_key_query_constraints_raises
+    Sharded::BlogPostWithRevision.has_many :comments_without_query_constraints, primary_key: [:blog_id, :id], class_name: "Comment"
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    blog_post = Sharded::BlogPostWithRevision.find(blog_post.id)
+
+    error = assert_raises ArgumentError do
+      blog_post.comments_without_query_constraints.to_a
+    end
+
+    assert_equal "The query constraints list on the `Sharded::BlogPostWithRevision` model has more than 2 attributes. Active Record is unable to derive the query constraints for the association. You need to explicitly define the query constraints for this association.", error.message
+  end
+
+  def test_model_with_composite_query_constraints_has_many_association_sql
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+
+    sql = capture_sql do
+      blog_post.comments.to_a
+    end.first
+
+    assert_match(/#{Regexp.escape(Sharded::Comment.connection.quote_table_name("sharded_comments.blog_post_id"))} =/, sql)
+    assert_match(/#{Regexp.escape(Sharded::Comment.connection.quote_table_name("sharded_comments.blog_id"))} =/, sql)
+  end
+
+  def test_belongs_to_association_does_not_use_parent_query_constraints_if_not_configured_to
+    comment = sharded_comments(:great_comment_blog_post_one)
+    blog_post = Sharded::BlogPost.new(blog_id: comment.blog_id, title: "Following best practices")
+
+    comment.blog_post_by_id = blog_post
+
+    comment.save
+
+    assert_predicate blog_post, :persisted?
+    assert_equal(blog_post, comment.blog_post_by_id)
+  end
+
+  def test_polymorphic_belongs_to_uses_parent_query_constraints
+    parent_post = sharded_blog_posts(:great_post_blog_one)
+    child_post = Sharded::BlogPost.create!(title: "Child post", blog_id: parent_post.blog_id, parent: parent_post)
+    child_post.reload # reload to forget the parent association
+
+    assert_equal parent_post, child_post.parent
+  end
+
+  def test_preloads_model_with_query_constraints_by_explicitly_configured_fk_and_pk
+    comment = sharded_comments(:great_comment_blog_post_one)
+    comments = Sharded::Comment.where(id: comment.id).preload(:blog_post_by_id).to_a
+    comment = comments.first
+    assert_equal(comment.blog_post_by_id, comment.blog_post)
+  end
+
+  def test_append_composite_foreign_key_has_many_association
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    comment = Sharded::Comment.new(body: "Great post! :clap:")
+    comment.save
+    blog_post.comments << comment
+
+    assert_includes(blog_post.comments, comment)
+    assert_equal(blog_post.id, comment.blog_post_id)
+    assert_equal(blog_post.blog_id, comment.blog_id)
+  end
+
+  def test_nullify_composite_foreign_key_has_many_association
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    comment = sharded_comments(:great_comment_blog_post_one)
+
+    assert_not_empty(blog_post.comments)
+    blog_post.comments = []
+
+    comment = Sharded::Comment.find(comment.id)
+    assert_nil(comment.blog_post_id)
+    assert_nil(comment.blog_id)
+
+    assert_empty(blog_post.comments)
+    assert_empty(blog_post.reload.comments)
+  end
+
+  def test_assign_persisted_composite_foreign_key_belongs_to_association
+    comment = sharded_comments(:great_comment_blog_post_one)
+    another_blog = sharded_blogs(:sharded_blog_two)
+    assert_not_equal(comment.blog_id, another_blog.id)
+
+    blog_post = Sharded::BlogPost.new(title: "New post", blog_id: another_blog.id)
+    blog_post.save
+    comment.blog_post = blog_post
+
+    assert_equal(blog_post, comment.blog_post)
+    assert_equal(comment.blog_id, blog_post.blog_id)
+    assert_equal(another_blog.id, comment.blog_id)
+    assert_equal(comment.blog_post_id, blog_post.id)
+  end
+
+  def test_nullify_composite_foreign_key_belongs_to_association
+    comment = sharded_comments(:great_comment_blog_post_one)
+    assert_not_nil(comment.blog_post)
+
+    comment.blog_post = nil
+    assert_nil(comment.blog_id)
+    assert_nil(comment.blog_post_id)
+
+    comment.save
+    assert_nil(comment.blog_post)
+    assert_nil(comment.reload.blog_post)
+  end
+
+  def test_assign_composite_foreign_key_belongs_to_association
+    comment = sharded_comments(:great_comment_blog_post_one)
+    another_blog = sharded_blogs(:sharded_blog_two)
+    assert_not_equal(comment.blog_id, another_blog.id)
+
+    blog_post = Sharded::BlogPost.new(title: "New post", blog_id: another_blog.id)
+    comment.blog_post = blog_post
+
+    assert_equal(blog_post, comment.blog_post)
+    assert_equal(comment.blog_id, blog_post.blog_id)
+    assert_equal(another_blog.id, comment.blog_id)
+  end
+
+  def test_query_constraints_that_dont_include_the_primary_key_raise
+    original = Sharded::BlogPost.instance_variable_get(:@query_constraints_list)
+    Sharded::BlogPost.query_constraints :title, :revision
+    Sharded::BlogPost.has_many :comments_without_query_constraints, primary_key: [:blog_id, :id], class_name: "Comment"
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+
+    error = assert_raises ArgumentError do
+      blog_post.comments_without_query_constraints.to_a
+    end
+
+    assert_equal "The query constraints on the `Sharded::BlogPost` model does not include the primary key so Active Record is unable to derive the foreign key constraints for the association. You need to explicitly define the query constraints for this association.", error.message
+  ensure
+    Sharded::BlogPost.instance_variable_set(:@query_constraints_list, original)
+  end
+
+  def test_assign_belongs_to_cpk_model_by_id_attribute
+    order = cpk_orders(:cpk_groceries_order_1)
+    agreement = Cpk::OrderAgreement.new(signature: "signed")
+
+    agreement.order = order
+    agreement.save
+
+    assert_not_nil(agreement.reload.order)
+    assert_not_nil(agreement.order_id)
+
+    assert_equal(order, agreement.order)
+    _shop_id, order_id = order.id
+    assert_equal(order_id, agreement.order_id)
+  end
+
+  def test_append_composite_foreign_key_has_many_association_with_autosave
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    comment = Sharded::Comment.new(body: "Great post! :clap:")
+    blog_post.comments << comment
+
+    assert_predicate(comment, :persisted?)
+    assert_includes(blog_post.comments, comment)
+    assert_equal(blog_post.id, comment.blog_post_id)
+    assert_equal(blog_post.blog_id, comment.blog_id)
+  end
+
+  def test_assign_composite_foreign_key_belongs_to_association_with_autosave
+    comment = sharded_comments(:great_comment_blog_post_one)
+    another_blog = sharded_blogs(:sharded_blog_two)
+    assert_not_equal(comment.blog_id, another_blog.id)
+
+    blog_post = Sharded::BlogPost.new(title: "New post", blog_id: another_blog.id)
+    comment.blog_post = blog_post
+    comment.save
+
+    assert_predicate(blog_post, :persisted?)
+    assert_equal(blog_post, comment.blog_post)
+    assert_equal(comment.blog_id, blog_post.blog_id)
+    assert_equal(another_blog.id, comment.blog_id)
+    assert_equal(comment.blog_post_id, blog_post.id)
+  end
+
+  def test_append_composite_has_many_through_association
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    tag = Sharded::Tag.new(name: "Ruby on Rails", blog_id: blog_post.blog_id)
+    tag.save
+
+    blog_post.tags << tag
+
+    assert_includes(blog_post.reload.tags, tag)
+    assert_predicate Sharded::BlogPostTag.where(blog_post_id: blog_post.id, blog_id: blog_post.blog_id, tag_id: tag.id), :exists?
+  end
+
+  def test_append_composite_has_many_through_association_with_autosave
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    tag = Sharded::Tag.new(name: "Ruby on Rails", blog_id: blog_post.blog_id)
+
+    blog_post.tags << tag
+
+    assert_includes(blog_post.reload.tags, tag)
+    assert_predicate Sharded::BlogPostTag.where(blog_post_id: blog_post.id, blog_id: blog_post.blog_id, tag_id: tag.id), :exists?
+  end
+
+  def test_nullify_composite_has_many_through_association
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    assert_not_empty(blog_post.tags)
+
+    blog_post.tags = []
+
+    assert_empty(blog_post.tags)
+    assert_empty(blog_post.reload.tags)
+    assert_not_predicate Sharded::BlogPostTag.where(blog_post_id: blog_post.id, blog_id: blog_post.blog_id), :exists?
+  end
 end
 
 class AssociationProxyTest < ActiveRecord::TestCase
-  fixtures :authors, :author_addresses, :posts, :categorizations, :categories, :developers, :projects, :developers_projects
+  fixtures :authors, :author_addresses, :posts, :categorizations, :categories, :developers, :projects, :developers_projects, :members
 
   def test_push_does_not_load_target
     david = authors(:david)
@@ -195,6 +529,15 @@ class AssociationProxyTest < ActiveRecord::TestCase
     assert_predicate andreas.audit_logs, :loaded?
   end
 
+  def test_pretty_print_does_not_reload_a_not_yet_loaded_target
+    andreas = Developer.new(log: "new developer added")
+    assert_not_predicate andreas.audit_logs, :loaded?
+    out = StringIO.new
+    PP.pp(andreas.audit_logs, out)
+    assert_match(/message: "new developer added"/, out.string)
+    assert_predicate andreas.audit_logs, :loaded?
+  end
+
   def test_save_on_parent_saves_children
     developer = Developer.create name: "Bryan", salary: 50_000
     assert_equal 1, developer.reload.audit_logs.size
@@ -202,14 +545,14 @@ class AssociationProxyTest < ActiveRecord::TestCase
 
   def test_create_via_association_with_block
     post = authors(:david).posts.create(title: "New on Edge") { |p| p.body = "More cool stuff!" }
-    assert_equal post.title, "New on Edge"
-    assert_equal post.body, "More cool stuff!"
+    assert_equal "New on Edge", post.title
+    assert_equal "More cool stuff!", post.body
   end
 
   def test_create_with_bang_via_association_with_block
     post = authors(:david).posts.create!(title: "New on Edge") { |p| p.body = "More cool stuff!" }
-    assert_equal post.title, "New on Edge"
-    assert_equal post.body, "More cool stuff!"
+    assert_equal "New on Edge", post.title
+    assert_equal "More cool stuff!", post.body
   end
 
   def test_reload_returns_association
@@ -253,7 +596,7 @@ class AssociationProxyTest < ActiveRecord::TestCase
 
     human = Human.find(human.id)
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       assert_equal human, human.interests.where("1=1").first.human
     end
   end
@@ -288,6 +631,51 @@ class AssociationProxyTest < ActiveRecord::TestCase
     david.posts.reset
     assert_not_predicate david.posts, :loaded?
     assert_not_predicate david.posts, :loaded
+  end
+
+  def test_target_merging_ignores_persisted_in_memory_records
+    david = authors(:david)
+    assert david.thinking_posts.include?(posts(:thinking))
+
+    david.thinking_posts.create!(title: "Something else entirely", body: "Does not matter.")
+
+    assert_equal 1, david.thinking_posts.size
+    assert_equal 1, david.thinking_posts.to_a.size
+  end
+
+  def test_target_merging_ignores_persisted_in_memory_records_when_loaded_records_are_empty
+    member = members(:blarpy_winkup)
+    assert_empty member.favorite_memberships
+
+    membership = member.favorite_memberships.create!
+    membership.update!(favorite: false)
+
+    assert_empty member.favorite_memberships.to_a
+  end
+
+  def test_target_merging_recognizes_updated_in_memory_records
+    member = members(:blarpy_winkup)
+    membership = member.create_membership!(favorite: false)
+
+    assert_empty member.favorite_memberships
+
+    membership.update!(favorite: true)
+
+    assert_not_empty member.favorite_memberships.to_a
+  end
+
+  def test_size_differentiates_between_new_and_persisted_in_memory_records_when_loaded_records_are_empty
+    member = members(:blarpy_winkup)
+    assert_empty member.favorite_memberships
+
+    membership = member.favorite_memberships.create!
+    membership.update!(favorite: false)
+
+    # CollectionAssociation#size has different behavior when loaded vs. non-loaded
+    # the first call will mark the association as loaded and the second call will
+    # take a different code path, so it's important to keep both assertions
+    assert_equal 0, member.favorite_memberships.size
+    assert_equal 0, member.favorite_memberships.size
   end
 end
 
@@ -385,7 +773,10 @@ class OverridingAssociationsTest < ActiveRecord::TestCase
 end
 
 class PreloaderTest < ActiveRecord::TestCase
-  fixtures :posts, :comments, :books, :authors, :tags, :taggings, :essays, :categories
+  fixtures :posts, :comments, :books, :authors, :tags, :taggings, :essays, :categories, :author_addresses,
+           :sharded_blog_posts, :sharded_comments, :sharded_blog_posts_tags, :sharded_tags,
+           :members, :member_details, :organizations, :cpk_orders, :cpk_order_agreements,
+           :dogs, :other_dogs
 
   def test_preload_with_scope
     post = posts(:welcome)
@@ -397,22 +788,10 @@ class PreloaderTest < ActiveRecord::TestCase
     assert_equal [comments(:greetings)], post.comments
   end
 
-  def test_legacy_preload_with_scope
-    post = posts(:welcome)
-
-    assert_deprecated do
-      preloader = ActiveRecord::Associations::Preloader.new
-      preloader.preload([post], :comments, Comment.where(body: "Thank you for the welcome"))
-    end
-
-    assert_predicate post.comments, :loaded?
-    assert_equal [comments(:greetings)], post.comments
-  end
-
   def test_preload_makes_correct_number_of_queries_on_array
     post = posts(:welcome)
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments)
       preloader.call
     end
@@ -422,22 +801,57 @@ class PreloaderTest < ActiveRecord::TestCase
     post = posts(:welcome)
     relation = Post.where(id: post.id)
 
-    assert_queries(2) do
+    assert_queries_count(2) do
       preloader = ActiveRecord::Associations::Preloader.new(records: relation, associations: :comments)
       preloader.call
     end
+  end
+
+  def test_preload_does_not_concatenate_duplicate_records
+    post = posts(:welcome)
+    post.reload
+    post.comments.create!(body: "A new comment")
+
+    ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments).call
+
+    assert_equal post.comments.length, post.comments.count
+    assert_equal post.comments.all.to_a, post.comments
+  end
+
+  def test_preload_for_hmt_with_conditions
+    post = posts(:welcome)
+    _normal_category = post.categories.create!(name: "Normal")
+    special_category = post.special_categories.create!(name: "Special")
+
+    preloader = ActiveRecord::Associations::Preloader.new(records: [post], associations: :hmt_special_categories)
+    preloader.call
+
+    assert_equal 1, post.hmt_special_categories.length
+    assert_equal [special_category], post.hmt_special_categories
   end
 
   def test_preload_groups_queries_with_same_scope
     book = books(:awdr)
     post = posts(:welcome)
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [book, post], associations: :author)
       preloader.call
     end
 
     assert_no_queries do
+      book.author
+      post.author
+    end
+  end
+
+  def test_preload_grouped_queries_with_already_loaded_records
+    book = books(:awdr)
+    post = posts(:welcome)
+    book.author
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [book, post], associations: :author).call
       book.author
       post.author
     end
@@ -449,7 +863,7 @@ class PreloaderTest < ActiveRecord::TestCase
       comments(:eager_sti_on_associations_s_comment2),
     ]
 
-    assert_queries(2) do
+    assert_queries_count(2) do
       ActiveRecord::Associations::Preloader.new(records: comments, associations: [:author, :ordinary_post]).call
     end
   end
@@ -457,8 +871,23 @@ class PreloaderTest < ActiveRecord::TestCase
   def test_preload_grouped_queries_of_through_records
     author = authors(:david)
 
-    assert_queries(3) do
+    assert_queries_count(3) do
       ActiveRecord::Associations::Preloader.new(records: [author], associations: [:hello_post_comments, :comments]).call
+    end
+  end
+
+  def test_preload_through_records_with_already_loaded_middle_record
+    member = members(:groucho)
+    expected_member_detail_ids = member.organization_member_details_2.pluck(:id)
+
+    member.reload.organization # load through record
+
+    assert_queries_count(1) do
+      ActiveRecord::Associations::Preloader.new(records: [member], associations: :organization_member_details_2).call
+    end
+
+    assert_no_queries do
+      assert_equal expected_member_detail_ids.sort, member.organization_member_details_2.map(&:id).sort
     end
   end
 
@@ -477,7 +906,7 @@ class PreloaderTest < ActiveRecord::TestCase
       body: "this post is also about David"
     )
 
-    assert_queries(2) do
+    assert_queries_count(2) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [david, david2, bob], associations: :posts_mentioning_author)
       preloader.call
     end
@@ -498,7 +927,7 @@ class PreloaderTest < ActiveRecord::TestCase
     comment1 = david.posts.first.comments.create!(body: "Hi David!")
     comment2 = david.posts.first.comments.create!(body: "This comment mentions david")
 
-    assert_queries(2) do
+    assert_queries_count(2) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [david, david2, bob], associations: :comments_mentioning_author)
       preloader.call
     end
@@ -535,7 +964,7 @@ class PreloaderTest < ActiveRecord::TestCase
     comment2 = post.comments.create!(body: "hello!")
     comment3 = post3.comments.create!(body: "HI BOB!")
 
-    assert_queries(3) do
+    assert_queries_count(3) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [david, david2, bob], associations: :comments_on_posts_mentioning_author)
       preloader.call
     end
@@ -570,7 +999,7 @@ class PreloaderTest < ActiveRecord::TestCase
     # SELECT "line_item_discount_applications".* FROM "line_item_discount_applications" WHERE "line_item_discount_applications"."line_item_id" = ?
     # SELECT "shipping_line_discount_applications".* FROM "shipping_line_discount_applications" WHERE "shipping_line_discount_applications"."shipping_line_id" = ?
     # SELECT "discounts".* FROM "discounts" WHERE "discounts"."id" IN (?, ?).
-    assert_queries(5) do
+    assert_queries_count(5) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [invoice], associations: [
         line_items: { discount_applications: :discount },
         shipping_lines: { discount_applications: :discount },
@@ -589,7 +1018,7 @@ class PreloaderTest < ActiveRecord::TestCase
     # SELECT "shipping_lines".* FROM shipping_lines WHERE "shipping_lines"."invoice_id" = ?
     # SELECT "shipping_line_discount_applications".* FROM "shipping_line_discount_applications" WHERE "shipping_line_discount_applications"."shipping_line_id" = ?
     # SELECT "discounts".* FROM "discounts" WHERE "discounts"."id" = ?.
-    assert_queries(3) do
+    assert_queries_count(3) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [invoice], associations: [
         line_items: { discount_applications: :discount },
         shipping_lines: { discount_applications: :discount },
@@ -609,7 +1038,7 @@ class PreloaderTest < ActiveRecord::TestCase
       comments(:eager_sti_on_associations_s_comment2),
     ]
 
-    assert_queries(2) do
+    assert_queries_count(2) do
       preloader = ActiveRecord::Associations::Preloader.new(records: comments, associations: [:author, :post])
       preloader.call
     end
@@ -627,7 +1056,7 @@ class PreloaderTest < ActiveRecord::TestCase
     #   SELECT FROM posts ... (thinking)
     #   SELECT FROM posts ... (welcome)
     #   SELECT FROM comments ... (comments for both welcome and thinking)
-    assert_queries(4) do
+    assert_queries_count(4) do
       author = Author
         .where(name: "David")
         .includes(thinking_posts: :comments, welcome_posts: :comments)
@@ -648,7 +1077,7 @@ class PreloaderTest < ActiveRecord::TestCase
     #   SELECT FROM posts ... (thinking)
     #   SELECT FROM posts ... (welcome)
     #   SELECT FROM comments ... (comments for both welcome and thinking)
-    assert_queries(4) do
+    assert_queries_count(4) do
       author = Author
         .where(name: "David")
         .includes(thinking_posts: :comments, welcome_posts: :comments_with_extending)
@@ -668,7 +1097,7 @@ class PreloaderTest < ActiveRecord::TestCase
     AuthorFavorite.create!(author: mary, favorite_author: bob)
     favorites = AuthorFavorite.all.load
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       preloader = ActiveRecord::Associations::Preloader.new(records: favorites, associations: [:author, :favorite_author])
       preloader.call
     end
@@ -685,7 +1114,7 @@ class PreloaderTest < ActiveRecord::TestCase
 
     AuthorFavorite.create!(author: mary, favorite_author: bob)
 
-    assert_queries(3) do
+    assert_queries_count(3) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [mary], associations: [:posts, favorite_authors: :posts])
       preloader.call
     end
@@ -702,14 +1131,32 @@ class PreloaderTest < ActiveRecord::TestCase
 
     AuthorFavorite.create!(author: mary, favorite_author: bob)
 
-    assert_queries(9) do
-      preloader = ActiveRecord::Associations::Preloader.new(records: [mary], associations: { similar_posts: :comments, favorite_authors: { similar_posts: :comments } })
+    associations = { similar_posts: :comments, favorite_authors: { similar_posts: :comments } }
+
+    assert_queries_count(9) do
+      preloader = ActiveRecord::Associations::Preloader.new(records: [mary], associations: associations)
       preloader.call
     end
 
     assert_no_queries do
       mary.similar_posts.map(&:comments).each(&:to_a)
       mary.favorite_authors.flat_map(&:similar_posts).map(&:comments).each(&:to_a)
+    end
+
+    # Preloading with automatic scope inversing reduces the number of queries
+    tag_reflection = Tagging.reflect_on_association(:tag)
+    taggings_reflection = Tag.reflect_on_association(:taggings)
+
+    assert tag_reflection.scope
+    assert_not taggings_reflection.scope
+
+    with_automatic_scope_inversing(tag_reflection, taggings_reflection) do
+      mary.reload
+
+      assert_queries_count(8) do
+        preloader = ActiveRecord::Associations::Preloader.new(records: [mary], associations: associations)
+        preloader.call
+      end
     end
   end
 
@@ -721,7 +1168,7 @@ class PreloaderTest < ActiveRecord::TestCase
     # When the scopes differ in the generated SQL:
     # SELECT "authors".* FROM "authors" WHERE (name LIKE '%a%') AND "authors"."id" = ?
     # SELECT "authors".* FROM "authors" WHERE "authors"."id" = ?.
-    assert_queries(2) do
+    assert_queries_count(2) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [post, postesque], associations: :author_with_the_letter_a)
       preloader.call
     end
@@ -735,7 +1182,7 @@ class PreloaderTest < ActiveRecord::TestCase
     postesque.reload
 
     # When the generated SQL is identical, but one scope has preload values.
-    assert_queries(3) do
+    assert_queries_count(3) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [post, postesque], associations: :author_with_address)
       preloader.call
     end
@@ -751,7 +1198,7 @@ class PreloaderTest < ActiveRecord::TestCase
     postesque = Postesque.create(author: Author.last)
     postesque.reload
 
-    assert_queries(2) do
+    assert_queries_count(2) do
       preloader = ActiveRecord::Associations::Preloader.new(records: [post, postesque], associations: :author)
       preloader.call
     end
@@ -759,6 +1206,31 @@ class PreloaderTest < ActiveRecord::TestCase
     assert_no_queries do
       post.author
       postesque.author
+    end
+  end
+
+  def test_multi_database_polymorphic_preload_with_same_table_name
+    dog = dogs(:sophie)
+    dog_comment = comments(:greetings)
+    dog_comment.origin_type = dog.class.name
+    dog_comment.origin_id = dog.id
+
+    other_dog = other_dogs(:lassie)
+    other_dog_comment = comments(:more_greetings)
+    other_dog_comment.origin_type = other_dog.class.name
+    other_dog_comment.origin_id = other_dog.id
+
+    # Both Dog and OtherDog are backed by a table named `dogs`,
+    # however they are stored in different databases and should
+    # therefore result in two separate queries rather than be batched
+    # together.
+    #
+    # Expected
+    #   SELECT FROM dogs ... (Dog)
+    #   SELECT FROM dogs ... (OtherDog)
+    assert_queries_count(2) do
+      preloader = ActiveRecord::Associations::Preloader.new(records: [dog_comment, other_dog_comment], associations: :origin)
+      preloader.call
     end
   end
 
@@ -774,17 +1246,88 @@ class PreloaderTest < ActiveRecord::TestCase
     end
   end
 
+  def test_preload_with_available_records_sti
+    book = Book.create!
+    essay_special = EssaySpecial.create!
+    book.essay = essay_special
+    book.save!
+    book.reload
+
+    assert_not_predicate book.association(:essay), :loaded?
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [book], associations: :essay, available_records: [[essay_special]]).call
+    end
+
+    assert_predicate book.association(:essay), :loaded?
+    assert_same essay_special, book.essay
+  end
+
+  def test_preload_with_only_some_records_available
+    bob_post = posts(:misc_by_bob)
+    mary_post = posts(:misc_by_mary)
+    bob = authors(:bob)
+    mary = authors(:mary)
+
+    assert_queries_count(1) do
+      ActiveRecord::Associations::Preloader.new(records: [bob_post, mary_post], associations: :author, available_records: [bob]).call
+    end
+
+    assert_no_queries do
+      assert_same bob, bob_post.author
+      assert_equal mary, mary_post.author
+    end
+  end
+
+  def test_preload_with_some_records_already_loaded
+    bob_post = posts(:misc_by_bob)
+    mary_post = posts(:misc_by_mary)
+    bob = bob_post.author
+    mary = authors(:mary)
+
+    assert_predicate bob_post.association(:author), :loaded?
+    assert_not mary_post.association(:author).loaded?
+
+    assert_queries_count(1) do
+      ActiveRecord::Associations::Preloader.new(records: [bob_post, mary_post], associations: :author).call
+    end
+
+    assert_no_queries do
+      assert_same bob, bob_post.author
+      assert_equal mary, mary_post.author
+    end
+  end
+
   def test_preload_with_available_records_with_through_association
     author = authors(:david)
     categories = Category.all.to_a
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       # One query to get the middle records (i.e. essays)
       ActiveRecord::Associations::Preloader.new(records: [author], associations: :essay_category, available_records: categories).call
     end
 
     assert_predicate author.association(:essay_category), :loaded?
-    assert categories.map(&:object_id).include?(author.essay_category.object_id)
+    assert categories.map(&:__id__).include?(author.essay_category.__id__)
+  end
+
+  def test_preload_with_only_some_records_available_with_through_associations
+    mary = authors(:mary)
+    mary_essay = essays(:mary_stay_home)
+    mary_category = categories(:technology)
+    mary_essay.update!(category: mary_category)
+
+    dave = authors(:david)
+    dave_category = categories(:general)
+
+    assert_queries_count(2) do
+      ActiveRecord::Associations::Preloader.new(records: [mary, dave], associations: :essay_category, available_records: [mary_category]).call
+    end
+
+    assert_no_queries do
+      assert_same mary_category, mary.essay_category
+      assert_equal dave_category, dave.essay_category
+    end
   end
 
   def test_preload_with_available_records_with_multiple_classes
@@ -806,24 +1349,24 @@ class PreloaderTest < ActiveRecord::TestCase
     post = posts(:welcome)
     david = authors(:david)
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       ActiveRecord::Associations::Preloader.new(records: [post], associations: :author, scope: Author.where(name: "David"), available_records: [david]).call
     end
 
     assert_predicate post.association(:author), :loaded?
-    assert_not_equal david.object_id, post.author.object_id
+    assert_not_equal david.__id__, post.author.__id__
   end
 
   def test_preload_with_available_records_queries_when_collection
     post = posts(:welcome)
     comments = Comment.all.to_a
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments, available_records: comments).call
     end
 
     assert_predicate post.association(:comments), :loaded?
-    assert_empty post.comments.map(&:object_id) & comments.map(&:object_id)
+    assert_empty post.comments.map(&:__id__) & comments.map(&:__id__)
   end
 
   def test_preload_with_available_records_queries_when_incomplete
@@ -831,13 +1374,183 @@ class PreloaderTest < ActiveRecord::TestCase
     bob = authors(:bob)
     david = authors(:david)
 
-    assert_queries(1) do
+    assert_queries_count(1) do
       ActiveRecord::Associations::Preloader.new(records: [post], associations: :author, available_records: [bob]).call
     end
 
     assert_no_queries do
       assert_predicate post.association(:author), :loaded?
       assert_equal david, post.author
+    end
+  end
+
+  def test_preload_with_unpersisted_records_no_ops
+    author = Author.new
+    new_post_with_author = Post.new(author: author)
+    new_post_without_author = Post.new
+    posts = [new_post_with_author, new_post_without_author]
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: posts, associations: :author).call
+
+      assert_same author, new_post_with_author.author
+      assert_nil new_post_without_author.author
+    end
+  end
+
+  def test_preload_wont_set_the_wrong_target
+    post = posts(:welcome)
+    post.update!(author_id: 54321)
+    some_other_record = categories(:general)
+    some_other_record.update!(id: 54321)
+
+    assert_raises do
+      some_other_record.association(:author)
+    end
+
+    assert_nothing_raised do
+      ActiveRecord::Associations::Preloader.new(records: [post], associations: :author, available_records: [[some_other_record]]).call
+      assert_predicate post.association(:author), :loaded?
+      assert_not_equal some_other_record, post.author
+    end
+  end
+
+  def test_preload_has_many_association_with_composite_foreign_key
+    blog_post = sharded_blog_posts(:great_post_blog_one)
+    blog_posts = [blog_post, sharded_blog_posts(:great_post_blog_two)]
+
+    ::ActiveRecord::Associations::Preloader.new(records: blog_posts, associations: [:comments]).call
+
+    assert_predicate blog_post.association(:comments), :loaded?
+    assert_includes(blog_post.comments.to_a, sharded_comments(:great_comment_blog_post_one))
+  end
+
+  def test_preload_belongs_to_association_with_composite_foreign_key
+    comment = sharded_comments(:great_comment_blog_post_one)
+    comments = [comment, sharded_comments(:great_comment_blog_post_two)]
+
+    ActiveRecord::Associations::Preloader.new(records: comments, associations: :blog_post).call
+
+    assert_predicate comment.association(:blog_post), :loaded?
+    assert_equal sharded_blog_posts(:great_post_blog_one), comment.blog_post
+  end
+
+  def test_preload_loaded_belongs_to_association_with_composite_foreign_key
+    comment = sharded_comments(:great_comment_blog_post_one)
+    comment.blog_post
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [comment], associations: :blog_post).call
+    end
+  end
+
+  def test_preload_has_many_through_association_with_composite_query_constraints
+    tag = sharded_tags(:short_read_blog_one)
+
+    tags = [tag, sharded_tags(:breaking_news_blog_2)]
+
+    ActiveRecord::Associations::Preloader.new(records: tags, associations: :blog_posts).call
+
+    assert tags.all? { |tag| tag.association(:blog_posts).loaded? }
+
+    expected_blog_post_ids = Sharded::BlogPostTag
+      .where(blog_id: tag.blog_id, tag_id: tag.id)
+      .pluck(:blog_post_id)
+
+    assert_not_empty(expected_blog_post_ids)
+
+    assert_equal(expected_blog_post_ids.sort, tag.blog_posts.map(&:id).sort)
+  end
+
+  def test_preloads_has_many_on_model_with_a_composite_primary_key_through_id_attribute
+    order = cpk_orders(:cpk_groceries_order_2)
+    _shop_id, order_id = order.id
+    order_agreements = Cpk::OrderAgreement.where(order_id: order_id).to_a
+
+    assert_not_empty order_agreements
+    assert_equal order_agreements.sort, order.order_agreements.sort
+
+    loaded_order = nil
+    sql = capture_sql do
+      loaded_order = Cpk::Order.where(id: order_id).includes(:order_agreements).to_a.first
+    end
+
+    assert_equal 2, sql.size
+    preload_sql = sql.last
+
+    c = Cpk::OrderAgreement.connection
+    order_id_column = Regexp.escape(c.quote_table_name("cpk_order_agreements.order_id"))
+    order_id_constraint = /#{order_id_column} = (\?|(\d+)|\$\d)$/
+    expectation = /SELECT.*WHERE.* #{order_id_constraint}/
+
+    assert_match(expectation, preload_sql)
+    assert_equal order_agreements.sort, loaded_order.order_agreements.sort
+  end
+
+  def test_preloads_belongs_to_a_composite_primary_key_model_through_id_attribute
+    order_agreement = cpk_order_agreements(:order_agreement_three)
+    order = cpk_orders(:cpk_groceries_order_2)
+    assert_equal order, order_agreement.order
+
+    loaded_order_agreement = nil
+    sql = capture_sql do
+      loaded_order_agreement = Cpk::OrderAgreement.where(id: order_agreement.id).includes(:order).to_a.first
+    end
+
+    assert_equal 2, sql.size
+    preload_sql = sql.last
+
+    c = Cpk::Order.connection
+    order_id = Regexp.escape(c.quote_table_name("cpk_orders.id"))
+    order_constraint = /#{order_id} = (\?|(\d+)|\$\d)$/
+    expectation = /SELECT.*WHERE.* #{order_constraint}/
+
+    assert_match(expectation, preload_sql)
+    assert_equal order, loaded_order_agreement.order
+  end
+
+  def test_preload_keeps_built_has_many_records_no_ops
+    post = Post.new
+    comment = post.comments.build
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments).call
+
+      assert_equal [comment], post.comments.to_a
+    end
+  end
+
+  def test_preload_keeps_built_has_many_records_after_query
+    post = posts(:welcome)
+    comment = post.comments.build
+
+    assert_queries_count(1) do
+      ActiveRecord::Associations::Preloader.new(records: [post], associations: :comments).call
+
+      assert_includes post.comments.to_a, comment
+    end
+  end
+
+
+  def test_preload_keeps_built_belongs_to_records_no_ops
+    post = Post.new
+    author = post.build_author
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [post], associations: :author).call
+
+      assert_same author, post.author
+    end
+  end
+
+  def test_preload_keeps_built_belongs_to_records_after_query
+    post = posts(:welcome)
+    author = post.build_author
+
+    assert_no_queries do
+      ActiveRecord::Associations::Preloader.new(records: [post], associations: :author).call
+
+      assert_same author, post.author
     end
   end
 end
@@ -873,7 +1586,7 @@ class GeneratedMethodsTest < ActiveRecord::TestCase
 end
 
 class WithAnnotationsTest < ActiveRecord::TestCase
-  fixtures :pirates, :parrots
+  fixtures :pirates, :parrots, :parrots_pirates, :pirates, :treasures
 
   def test_belongs_to_with_annotation_includes_a_query_comment
     pirate = SpacePirate.where.not(parrot_id: nil).first
@@ -885,7 +1598,7 @@ class WithAnnotationsTest < ActiveRecord::TestCase
     assert_not_predicate log, :empty?
     assert_predicate log.select { |query| query.match?(%r{/\*}) }, :empty?
 
-    assert_sql(%r{/\* that tells jokes \*/}) do
+    assert_queries_match(%r{/\* that tells jokes \*/}) do
       pirate.parrot_with_annotation
     end
   end
@@ -900,7 +1613,7 @@ class WithAnnotationsTest < ActiveRecord::TestCase
     assert_not_predicate log, :empty?
     assert_predicate log.select { |query| query.match?(%r{/\*}) }, :empty?
 
-    assert_sql(%r{/\* that are very colorful \*/}) do
+    assert_queries_match(%r{/\* that are very colorful \*/}) do
       pirate.parrots_with_annotation.first
     end
   end
@@ -915,7 +1628,7 @@ class WithAnnotationsTest < ActiveRecord::TestCase
     assert_not_predicate log, :empty?
     assert_predicate log.select { |query| query.match?(%r{/\*}) }, :empty?
 
-    assert_sql(%r{/\* that is a rocket \*/}) do
+    assert_queries_match(%r{/\* that is a rocket \*/}) do
       pirate.ship_with_annotation
     end
   end
@@ -930,7 +1643,7 @@ class WithAnnotationsTest < ActiveRecord::TestCase
     assert_not_predicate log, :empty?
     assert_predicate log.select { |query| query.match?(%r{/\*}) }, :empty?
 
-    assert_sql(%r{/\* that are also parrots \*/}) do
+    assert_queries_match(%r{/\* that are also parrots \*/}) do
       pirate.birds_with_annotation.first
     end
   end
@@ -945,7 +1658,7 @@ class WithAnnotationsTest < ActiveRecord::TestCase
     assert_not_predicate log, :empty?
     assert_predicate log.select { |query| query.match?(%r{/\*}) }, :empty?
 
-    assert_sql(%r{/\* yarrr \*/}) do
+    assert_queries_match(%r{/\* yarrr \*/}) do
       pirate.treasure_estimates_with_annotation.first
     end
   end
@@ -960,7 +1673,7 @@ class WithAnnotationsTest < ActiveRecord::TestCase
     assert_not_predicate log, :empty?
     assert_predicate log.select { |query| query.match?(%r{/\*}) }, :empty?
 
-    assert_sql(%r{/\* yarrr \*/}) do
+    assert_queries_match(%r{/\* yarrr \*/}) do
       SpacePirate.includes(:treasure_estimates_with_annotation, :treasures).first
     end
   end

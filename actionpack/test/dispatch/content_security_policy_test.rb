@@ -59,6 +59,9 @@ class ContentSecurityPolicyTest < ActiveSupport::TestCase
 
     @policy.script_src :none, :report_sample
     assert_equal "script-src 'none' 'report-sample'", @policy.build
+
+    @policy.script_src :unsafe_hashes
+    assert_equal "script-src 'unsafe-hashes'", @policy.build
   end
 
   def test_fetch_directives
@@ -255,6 +258,14 @@ class ContentSecurityPolicyTest < ActiveSupport::TestCase
     assert_equal "script-src www.example.com", @policy.build(controller)
   end
 
+  def test_multiple_and_dynamic_directives
+    request = ActionDispatch::Request.new("HTTP_HOST" => "www.example.com")
+    controller = Struct.new(:request).new(request)
+
+    @policy.frame_ancestors -> { [:self, "https://example.com"] }
+    assert_equal "frame-ancestors 'self' https://example.com", @policy.build(controller)
+  end
+
   def test_mixed_static_and_dynamic_directives
     @policy.script_src :self, -> { "foo.com" }, "bar.com"
     request = ActionDispatch::Request.new({})
@@ -291,6 +302,51 @@ class ContentSecurityPolicyTest < ActiveSupport::TestCase
   end
 end
 
+class ContentSecurityPolicyMiddlewareTest < ActiveSupport::TestCase
+  def setup
+    @env = Rack::MockRequest.env_for("", {})
+    @env["action_dispatch.content_security_policy"] = ActionDispatch::ContentSecurityPolicy.new do |p|
+      p.default_src -> { :self  }
+    end
+    @env["action_dispatch.content_security_policy_nonce_generator"] = proc { "iyhD0Yc0W+c=" }
+    @env["action_dispatch.content_security_policy_report_only"] = false
+    @env["action_dispatch.show_exceptions"] = :none
+
+    @default_csp = "default-src 'self' https: http:"
+  end
+
+  def test_rack_lint
+    app = proc { [200, {}, []] }
+
+    assert_nothing_raised do
+      Rack::Lint.new(
+        ActionDispatch::ContentSecurityPolicy::Middleware.new(
+          Rack::Lint.new(app)
+        )
+      ).call(@env)
+    end
+  end
+
+  def test_does_not_override_app_content_security_policy
+    app = proc { [200, { ActionDispatch::Constants::CONTENT_SECURITY_POLICY => @default_csp }, []] }
+    _, headers, _ = Rack::Lint.new(
+      ActionDispatch::ContentSecurityPolicy::Middleware.new(Rack::Lint.new(app))
+    ).call(@env)
+
+    assert_equal @default_csp, headers[ActionDispatch::Constants::CONTENT_SECURITY_POLICY]
+  end
+
+  def test_does_not_override_app_content_security_policy_report_only
+    app = proc { [200, { ActionDispatch::Constants::CONTENT_SECURITY_POLICY_REPORT_ONLY => @default_csp }, []] }
+    @env["action_dispatch.content_security_policy_report_only"] = true
+    _, headers, _ = Rack::Lint.new(
+      ActionDispatch::ContentSecurityPolicy::Middleware.new(Rack::Lint.new(app))
+    ).call(@env)
+
+    assert_equal @default_csp, headers[ActionDispatch::Constants::CONTENT_SECURITY_POLICY_REPORT_ONLY]
+  end
+end
+
 class DefaultContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
   class PolicyController < ActionController::Base
     def index
@@ -320,15 +376,17 @@ class DefaultContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationT
       env["action_dispatch.content_security_policy"] = POLICY
       env["action_dispatch.content_security_policy_nonce_generator"] = proc { "iyhD0Yc0W+c=" }
       env["action_dispatch.content_security_policy_report_only"] = false
-      env["action_dispatch.show_exceptions"] = false
+      env["action_dispatch.show_exceptions"] = :none
 
       @app.call(env)
     end
   end
 
   APP = build_app(ROUTES) do |middleware|
+    middleware.use Rack::Lint
     middleware.use PolicyConfigMiddleware
     middleware.use ActionDispatch::ContentSecurityPolicy::Middleware
+    middleware.use Rack::Lint
   end
 
   def app
@@ -395,6 +453,11 @@ class ContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
 
     content_security_policy_report_only only: :report_only
 
+    content_security_policy only: :api do |p|
+      p.default_src :none
+      p.frame_ancestors :none
+    end
+
     def index
       head :ok
     end
@@ -423,6 +486,14 @@ class ContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
       head :ok
     end
 
+    def api
+      render json: {}
+    end
+
+    def not_modified
+      head :not_modified
+    end
+
     private
       def condition?
         params[:condition] == "true"
@@ -439,6 +510,8 @@ class ContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
       get "/script-src", to: "policy#script_src"
       get "/style-src", to: "policy#style_src"
       get "/no-policy", to: "policy#no_policy"
+      get "/api", to: "policy#api"
+      get "/not-modified", to: "policy#not_modified"
     end
   end
 
@@ -455,15 +528,17 @@ class ContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
       env["action_dispatch.content_security_policy"] = POLICY
       env["action_dispatch.content_security_policy_nonce_generator"] = proc { "iyhD0Yc0W+c=" }
       env["action_dispatch.content_security_policy_report_only"] = false
-      env["action_dispatch.show_exceptions"] = false
+      env["action_dispatch.show_exceptions"] = :none
 
       @app.call(env)
     end
   end
 
   APP = build_app(ROUTES) do |middleware|
+    middleware.use Rack::Lint
     middleware.use PolicyConfigMiddleware
     middleware.use ActionDispatch::ContentSecurityPolicy::Middleware
+    middleware.use Rack::Lint
   end
 
   def app
@@ -505,6 +580,18 @@ class ContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
 
   def test_generates_no_content_security_policy
     get "/no-policy"
+
+    assert_nil response.headers["Content-Security-Policy"]
+    assert_nil response.headers["Content-Security-Policy-Report-Only"]
+  end
+
+  def test_generates_api_security_policy
+    get "/api"
+    assert_policy "default-src 'none'; frame-ancestors 'none'"
+  end
+
+  def test_generates_no_content_security_policy_for_not_modified
+    get "/not-modified"
 
     assert_nil response.headers["Content-Security-Policy"]
     assert_nil response.headers["Content-Security-Policy-Report-Only"]
@@ -559,15 +646,17 @@ class DisabledContentSecurityPolicyIntegrationTest < ActionDispatch::Integration
       env["action_dispatch.content_security_policy"] = nil
       env["action_dispatch.content_security_policy_nonce_generator"] = nil
       env["action_dispatch.content_security_policy_report_only"] = false
-      env["action_dispatch.show_exceptions"] = false
+      env["action_dispatch.show_exceptions"] = :none
 
       @app.call(env)
     end
   end
 
   APP = build_app(ROUTES) do |middleware|
+    middleware.use Rack::Lint
     middleware.use PolicyConfigMiddleware
     middleware.use ActionDispatch::ContentSecurityPolicy::Middleware
+    middleware.use Rack::Lint
   end
 
   def app
@@ -615,15 +704,17 @@ class NonceDirectiveContentSecurityPolicyIntegrationTest < ActionDispatch::Integ
       env["action_dispatch.content_security_policy_nonce_generator"] = proc { "iyhD0Yc0W+c=" }
       env["action_dispatch.content_security_policy_report_only"] = false
       env["action_dispatch.content_security_policy_nonce_directives"] = %w(script-src)
-      env["action_dispatch.show_exceptions"] = false
+      env["action_dispatch.show_exceptions"] = :none
 
       @app.call(env)
     end
   end
 
   APP = build_app(ROUTES) do |middleware|
+    middleware.use Rack::Lint
     middleware.use PolicyConfigMiddleware
     middleware.use ActionDispatch::ContentSecurityPolicy::Middleware
+    middleware.use Rack::Lint
   end
 
   def app
@@ -636,5 +727,80 @@ class NonceDirectiveContentSecurityPolicyIntegrationTest < ActionDispatch::Integ
     assert_response :success
     assert_match "script-src https: 'nonce-iyhD0Yc0W+c='", response.headers["Content-Security-Policy"]
     assert_no_match "style-src https: 'nonce-iyhD0Yc0W+c='", response.headers["Content-Security-Policy"]
+  end
+end
+
+class HelpersContentSecurityPolicyIntegrationTest < ActionDispatch::IntegrationTest
+  module ApplicationHelper
+    def pigs_can_fly?
+      false
+    end
+  end
+
+  class ApplicationController < ActionController::Base
+    helper_method :sky_is_blue?
+    def sky_is_blue?
+      true
+    end
+  end
+
+  class PolicyController < ApplicationController
+    content_security_policy do |p|
+      p.default_src "https://example.com"
+      p.script_src "https://example.com" if helpers.sky_is_blue?
+      p.style_src "https://example.com" unless helpers.pigs_can_fly?
+    end
+
+    def index
+      head :ok
+    end
+  end
+
+  ROUTES = ActionDispatch::Routing::RouteSet.new
+  ROUTES.draw do
+    scope module: "helpers_content_security_policy_integration_test" do
+      get "/", to: "policy#index"
+    end
+  end
+
+  POLICY = ActionDispatch::ContentSecurityPolicy.new do |p|
+    p.default_src -> { :self  }
+    p.script_src -> { :https }
+    p.style_src -> { :https }
+  end
+
+  class PolicyConfigMiddleware
+    def initialize(app)
+      @app = app
+    end
+
+    def call(env)
+      env["action_dispatch.content_security_policy"] = POLICY
+      env["action_dispatch.content_security_policy_nonce_generator"] = proc { "iyhD0Yc0W+c=" }
+      env["action_dispatch.content_security_policy_report_only"] = false
+      env["action_dispatch.show_exceptions"] = :none
+
+      @app.call(env)
+    end
+  end
+
+  APP = build_app(ROUTES) do |middleware|
+    middleware.use Rack::Lint
+    middleware.use PolicyConfigMiddleware
+    middleware.use ActionDispatch::ContentSecurityPolicy::Middleware
+    middleware.use Rack::Lint
+  end
+
+  def app
+    APP
+  end
+
+  def test_can_call_helper_methods_in_csp
+    get "/"
+
+    assert_response :success
+    assert_match "default-src https://example.com", response.headers["Content-Security-Policy"]
+    assert_match "script-src https://example.com", response.headers["Content-Security-Policy"]
+    assert_match "style-src https://example.com", response.headers["Content-Security-Policy"]
   end
 end

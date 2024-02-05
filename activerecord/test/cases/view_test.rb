@@ -21,7 +21,7 @@ module ViewBehavior
     super
     @connection = ActiveRecord::Base.connection
     create_view "ebooks'", <<~SQL
-      SELECT id, name, status FROM books WHERE format = 'ebook'
+      SELECT id, name, cover, status FROM books WHERE format = 'ebook'
     SQL
   end
 
@@ -58,11 +58,12 @@ module ViewBehavior
   def test_column_definitions
     assert_equal([["id", :integer],
                   ["name", :string],
+                  ["cover", :string],
                   ["status", :integer]], Ebook.columns.map { |c| [c.name, c.type] })
   end
 
   def test_attributes
-    assert_equal({ "id" => 2, "name" => "Ruby for Rails", "status" => 0 },
+    assert_equal({ "id" => 2, "name" => "Ruby for Rails", "cover" => "hard", "status" => 0 },
                  Ebook.first.attributes)
   end
 
@@ -113,7 +114,7 @@ if ActiveRecord::Base.connection.supports_views?
     end
 
     teardown do
-      @connection.execute "DROP VIEW paperbacks" if @connection.view_exists? "paperbacks"
+      @connection.execute "DROP VIEW paperbacks" if @connection&.view_exists? "paperbacks"
     end
 
     def test_reading
@@ -155,10 +156,9 @@ if ActiveRecord::Base.connection.supports_views?
     end
   end
 
-  # sqlite dose not support CREATE, INSERT, and DELETE for VIEW
-  if current_adapter?(:Mysql2Adapter, :SQLServerAdapter, :PostgreSQLAdapter)
-
-    class UpdateableViewTest < ActiveRecord::TestCase
+  class UpdateableViewTest < ActiveRecord::TestCase
+    # SQLite does not support CREATE, INSERT, and DELETE for VIEW
+    if current_adapter?(:Mysql2Adapter, :TrilogyAdapter, :SQLServerAdapter, :PostgreSQLAdapter)
       self.use_transactional_tests = false
       fixtures :books
 
@@ -193,6 +193,12 @@ if ActiveRecord::Base.connection.supports_views?
         assert_equal "Rails in Action", new_book.name
       end
 
+      def test_insert_record_populates_primary_key
+        book = PrintedBook.create! name: "Rails in Action", status: 0, format: "paperback"
+        assert_not_nil book.id
+        assert book.id > 0
+      end if current_adapter?(:PostgreSQLAdapter, :SQLite3Adapter) && supports_insert_returning?
+
       def test_update_record_to_fail_view_conditions
         book = PrintedBook.first
         book.format = "ebook"
@@ -202,8 +208,8 @@ if ActiveRecord::Base.connection.supports_views?
           book.reload
         end
       end
-    end
-  end # end of `if current_adapter?(:Mysql2Adapter, :PostgreSQLAdapter, :SQLServerAdapter)`
+    end # end of `if current_adapter?(:Mysql2Adapter, :TrilogyAdapter, :PostgreSQLAdapter, :SQLServerAdapter)`
+  end
 end # end of `if ActiveRecord::Base.connection.supports_views?`
 
 if ActiveRecord::Base.connection.supports_materialized_views?

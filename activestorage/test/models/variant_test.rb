@@ -104,7 +104,7 @@ class ActiveStorage::VariantTest < ActiveSupport::TestCase
   end
 
   test "resized variation of BMP blob" do
-    blob = create_file_blob(filename: "colors.bmp", content_type: "image/x-bmp")
+    blob = create_file_blob(filename: "colors.bmp", content_type: "image/bmp")
     variant = blob.variant(resize_to_limit: [15, 15]).processed
     assert_match(/colors\.png/, variant.url)
 
@@ -197,13 +197,13 @@ class ActiveStorage::VariantTest < ActiveSupport::TestCase
     end
   end
 
-  test "doesn't crash content_type not recognized by mini_mime" do
+  test "content_type not recognized by marcel isn't included as variable" do
     blob = create_file_blob(filename: "racecar.jpg")
 
-    # image/jpg is not recognised by mini_mime (image/jpeg is correct)
+    # image/jpg is not recognized by marcel (image/jpeg is correct)
     blob.update(content_type: "image/jpg")
 
-    assert_nothing_raised do
+    assert_raises(ActiveStorage::InvariableError) do
       blob.variant(resize_to_limit: [100, 100])
     end
 
@@ -211,12 +211,83 @@ class ActiveStorage::VariantTest < ActiveSupport::TestCase
     assert_equal :png, blob.send(:default_variant_format)
   end
 
+  test "variations with dangerous argument string raise UnsupportedImageProcessingArgument" do
+    process_variants_with :mini_magick do
+      blob = create_file_blob(filename: "racecar.jpg")
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(resize: "-PaTh /tmp/file.erb").processed
+      end
+    end
+  end
+
+  test "variations with dangerous argument array raise UnsupportedImageProcessingArgument" do
+    process_variants_with :mini_magick do
+      blob = create_file_blob(filename: "racecar.jpg")
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(resize: [123, "-write", "/tmp/file.erb"]).processed
+      end
+    end
+  end
+
+  test "variations with dangerous argument in a nested array raise UnsupportedImageProcessingArgument" do
+    process_variants_with :mini_magick do
+      blob = create_file_blob(filename: "racecar.jpg")
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(resize: [123, ["-write", "/tmp/file.erb"], "/tmp/file.erb"]).processed
+      end
+
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(resize: [123, { "-write /tmp/file.erb": "something" }, "/tmp/file.erb"]).processed
+      end
+    end
+  end
+
+  test "variations with dangerous argument hash raise UnsupportedImageProcessingArgument" do
+    process_variants_with :mini_magick do
+      blob = create_file_blob(filename: "racecar.jpg")
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(saver: { "-write": "/tmp/file.erb" }).processed
+      end
+    end
+  end
+
+  test "variations with dangerous argument in a nested hash raise UnsupportedImageProcessingArgument" do
+    process_variants_with :mini_magick do
+      blob = create_file_blob(filename: "racecar.jpg")
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(saver: { "something": { "-write": "/tmp/file.erb" } }).processed
+      end
+
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingArgument) do
+        blob.variant(saver: { "something": ["-write", "/tmp/file.erb"] }).processed
+      end
+    end
+  end
+
+  test "variations with unsupported methods raise UnsupportedImageProcessingMethod" do
+    process_variants_with :mini_magick do
+      blob = create_file_blob(filename: "racecar.jpg")
+      assert_raise(ActiveStorage::Transformers::ImageProcessingTransformer::UnsupportedImageProcessingMethod) do
+        blob.variant(system: "touch /tmp/dangerous").processed
+      end
+    end
+  end
+
+  test "destroy deletes file from service" do
+    blob = create_file_blob(filename: "racecar.jpg")
+    variant = blob.variant(resize_to_limit: [100, 100]).processed
+
+    assert_changes -> { blob.service.exist?(variant.key) }, from: true, to: false do
+      variant.destroy
+    end
+  end
+
   private
     def process_variants_with(processor)
       previous_processor, ActiveStorage.variant_processor = ActiveStorage.variant_processor, processor
       yield
     rescue LoadError
-      ENV["CI"] ? raise : skip("Variant processor #{processor.inspect} is not installed")
+      ENV["BUILDKITE"] ? raise : skip("Variant processor #{processor.inspect} is not installed")
     ensure
       ActiveStorage.variant_processor = previous_processor
     end

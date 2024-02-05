@@ -34,7 +34,7 @@ end
 # Monkey patch subscriber to test that only one subscriber per method is added.
 class TestSubscriber
   remove_method :open_party
-  def open_party(event)
+  def open_party(event) # rubocop:disable Lint/DuplicateMethods
     events << event
   end
 end
@@ -64,7 +64,7 @@ class SubscriberTest < ActiveSupport::TestCase
     PartySubscriber.detach_from :doodle
   end
 
-  def test_attaches_subscribers_with_inherit_all_option_replaces_original_behaviour
+  def test_attaches_subscribers_with_inherit_all_option_replaces_original_behavior
     PartySubscriber.attach_to :doodle, inherit_all: true
 
     ActiveSupport::Notifications.instrument("another_open_party.doodle")
@@ -126,5 +126,26 @@ class SubscriberTest < ActiveSupport::TestCase
     assert_equal original_event, TestSubscriber.events.first
   ensure
     TestSubscriber.detach_from :doodle
+  end
+
+  def test_publish_event_preserve_units
+    event = ActiveSupport::Notifications::Event.new("publish_event.test", nil, nil, 42, {})
+    event.record { sleep 0.1 }
+
+    computed_duration = nil
+    callback = -> (_, start, finish, _, _) { computed_duration = finish - start }
+
+    ActiveSupport::Notifications.subscribed(callback, "publish_event.test") do
+      ActiveSupport::Notifications.publish_event(event)
+    end
+
+    # Event#duration is in milliseconds, start and finish in seconds
+    assert_in_delta event.duration / 1_000.0, computed_duration, 0.05
+
+    ActiveSupport::Notifications.subscribed(callback, "publish_event.test", monotonic: true) do
+      ActiveSupport::Notifications.publish_event(event)
+    end
+
+    assert_in_delta event.duration / 1_000.0, computed_duration, 0.05
   end
 end

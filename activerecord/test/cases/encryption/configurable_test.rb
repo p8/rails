@@ -41,15 +41,53 @@ class ActiveRecord::Encryption::ConfigurableTest < ActiveRecord::EncryptionTestC
     assert_equal :isbn, @attribute_name
   end
 
-  test "install autofiltered params" do
+  test "installing autofiltered parameters will add the encrypted attribute as a filter parameter using the dot notation" do
     application = OpenStruct.new(config: OpenStruct.new(filter_parameters: []))
-    ActiveRecord::Encryption.install_auto_filtered_parameters(application)
 
-    Class.new(Pirate) do
-      self.table_name = "pirates"
-      encrypts :catchphrase
+    with_auto_filtered_parameters(application) do
+      NamedPirate = Class.new(Pirate) do
+        self.table_name = "pirates"
+      end
+      NamedPirate.encrypts :catchphrase
     end
 
-    assert_includes application.config.filter_parameters, :catchphrase
+    assert_includes application.config.filter_parameters, "named_pirate.catchphrase"
   end
+
+  test "installing autofiltered parameters will work with unnamed classes" do
+    application = OpenStruct.new(config: OpenStruct.new(filter_parameters: []))
+
+    with_auto_filtered_parameters(application) do
+      Class.new(Pirate) do
+        self.table_name = "pirates"
+        encrypts :catchphrase
+      end
+    end
+
+    assert_includes application.config.filter_parameters, "catchphrase"
+  end
+
+  test "exclude the installation of autofiltered params" do
+    ActiveRecord::Encryption.config.excluded_from_filter_parameters = [:catchphrase]
+
+    application = OpenStruct.new(config: OpenStruct.new(filter_parameters: []))
+
+    with_auto_filtered_parameters(application) do
+      Class.new(Pirate) do
+        self.table_name = "pirates"
+        encrypts :catchphrase
+      end
+    end
+
+    assert_equal [], application.config.filter_parameters
+
+    ActiveRecord::Encryption.config.excluded_from_filter_parameters = []
+  end
+
+  private
+    def with_auto_filtered_parameters(application)
+      auto_filtered_parameters = ActiveRecord::Encryption::AutoFilteredParameters.new(application)
+      yield
+      auto_filtered_parameters.enable
+    end
 end

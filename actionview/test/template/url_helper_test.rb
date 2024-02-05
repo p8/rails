@@ -16,7 +16,7 @@ class Workshop
   end
 
   def to_s
-    id.to_s
+    "Workshop #{id}"
   end
 end
 
@@ -35,7 +35,10 @@ class UrlHelperTest < ActiveSupport::TestCase
     get "/other" => "foo#other"
     get "/article/:id" => "foo#article", :as => :article
     get "/category/:category" => "foo#category"
-    resources :workshops
+    resources :sessions
+    resources :workshops do
+      resources :sessions
+    end
 
     scope :engine do
       get "/" => "foo#bar"
@@ -150,6 +153,39 @@ class UrlHelperTest < ActiveSupport::TestCase
     self.class.define_method(:protect_against_forgery?) { request_forgery }
   end
 
+  def test_button_to_with_authenticity_token
+    self.request_forgery = true
+
+    assert_dom_equal(
+      %{<form method="post" action="http://www.example.com" class="button_to"><button type="submit">Hello</button><input name="form_token" type="hidden" value="token" autocomplete="off" /></form>},
+      button_to("Hello", "http://www.example.com", authenticity_token: "token")
+    )
+  ensure
+    self.request_forgery = false
+  end
+
+  def test_button_to_with_authenticity_token_true
+    self.request_forgery = true
+
+    assert_dom_equal(
+      %{<form method="post" action="http://www.example.com" class="button_to"><button type="submit">Hello</button><input name="form_token" type="hidden" value="secret" autocomplete="off" /></form>},
+      button_to("Hello", "http://www.example.com", authenticity_token: true)
+    )
+  ensure
+    self.request_forgery = false
+  end
+
+  def test_button_to_with_authenticity_token_false
+    self.request_forgery = true
+
+    assert_dom_equal(
+      %{<form method="post" action="http://www.example.com" class="button_to"><button type="submit">Hello</button></form>},
+      button_to("Hello", "http://www.example.com", authenticity_token: false)
+    )
+  ensure
+    self.request_forgery = false
+  end
+
   def test_button_to_with_straight_url
     assert_dom_equal %{<form method="post" action="http://www.example.com" class="button_to"><button type="submit">Hello</button></form>}, button_to("Hello", "http://www.example.com")
   end
@@ -158,6 +194,76 @@ class UrlHelperTest < ActiveSupport::TestCase
     assert_dom_equal(
       %{<form method="post" action="/article/Hello" class="button_to"><button type="submit">Hello</button></form>},
       button_to("Hello", article_path("Hello"))
+    )
+  end
+
+  def test_button_to_with_false_url
+    assert_dom_equal(
+      %{<form method="post" class="button_to"><button type="submit">Hello</button></form>},
+      button_to("Hello", false)
+    )
+  end
+
+  def test_button_to_with_false_url_and_block
+    assert_dom_equal(
+      %{<form method="post" class="button_to"><button type="submit">Hello</button></form>},
+      button_to(false) { "Hello" }
+    )
+  end
+
+  def test_button_to_with_new_record_model
+    session = Session.new(nil)
+
+    assert_dom_equal(
+      %{<form method="post" action="/sessions" class="button_to"><button type="submit">Create Session</button></form>},
+      button_to("Create Session", session)
+    )
+  end
+
+  def test_button_to_with_new_record_model_and_block
+    workshop = Workshop.new(nil)
+
+    assert_dom_equal(
+      %{<form method="post" action="/workshops" class="button_to"><button type="submit">Create</button></form>},
+      button_to(workshop) { "Create" }
+    )
+  end
+
+  def test_button_to_with_nested_new_record_model_and_block
+    workshop = Workshop.new("1")
+    session = Session.new(nil)
+
+    assert_dom_equal(
+      %{<form method="post" action="/workshops/1/sessions" class="button_to"><button type="submit">Create</button></form>},
+      button_to([workshop, session]) { "Create" }
+    )
+  end
+
+  def test_button_to_with_persisted_model
+    workshop = Workshop.new("1")
+
+    assert_dom_equal(
+      %{<form method="post" action="/workshops/1" class="button_to"><input type="hidden" name="_method" value="patch" autocomplete="off" /><button type="submit">Update</button></form>},
+      button_to(workshop) { "Update" }
+    )
+  end
+
+  def test_button_to_with_persisted_model_and_block
+    workshop = Workshop.new("1")
+
+    assert_dom_equal(
+      %{<form method="post" action="/workshops/1" class="button_to"><input type="hidden" name="_method" value="patch" autocomplete="off" /><button type="submit">Update</button></form>},
+      button_to(workshop) { "Update" }
+    )
+  end
+
+  def test_button_to_with_nested_persisted_model_and_block
+    workshop = Workshop.new("1")
+    session = Session.new("1")
+
+    assert_dom_equal(
+      %{<form method="post" action="/workshops/1/sessions/1" class="button_to"><input type="hidden" name="_method" value="patch" autocomplete="off" /><button type="submit">Update</button></form>},
+      button_to([workshop, session]) { "Update" }
     )
   end
 
@@ -277,6 +383,13 @@ class UrlHelperTest < ActiveSupport::TestCase
     )
   end
 
+  def test_button_to_with_block_and_hash_url
+    assert_dom_equal(
+      %{<form action="/other" class="button_to" method="post"><button class="button" type="submit">Hello</button></form>},
+      button_to({ controller: "foo", action: "other" }, class: "button") { "Hello" }
+    )
+  end
+
   def test_button_to_generates_input_when_button_to_generates_button_tag_false
     old_value = ActionView::Helpers::UrlHelper.button_to_generates_button_tag
     ActionView::Helpers::UrlHelper.button_to_generates_button_tag = false
@@ -287,6 +400,15 @@ class UrlHelperTest < ActiveSupport::TestCase
     )
   ensure
     ActionView::Helpers::UrlHelper.button_to_generates_button_tag = old_value
+  end
+
+  def test_button_to_with_content_exfiltration_prevention
+    with_prepend_content_exfiltration_prevention(true) do
+      assert_dom_equal(
+        %{<!-- '"` --><!-- </textarea></xmp> --></option></form><form method="post" action="http://www.example.com" class="button_to"><button type="submit">Hello</button></form>},
+        button_to("Hello", "http://www.example.com")
+      )
+    end
   end
 
   class FakeParams
@@ -515,7 +637,13 @@ class UrlHelperTest < ActiveSupport::TestCase
   def test_link_tag_using_active_record_model
     @workshop = Workshop.new(1.to_s)
     link = link_to(@workshop)
-    assert_dom_equal %{<a href="/workshops/1">1</a>}, link
+    assert_dom_equal %{<a href="/workshops/1">Workshop 1</a>}, link
+  end
+
+  def test_link_tag_using_active_record_model_twice
+    @workshop = Workshop.new(1.to_s)
+    link = link_to(@workshop, @workshop)
+    assert_dom_equal %{<a href="/workshops/1">Workshop 1</a>}, link
   end
 
   def test_link_to_unless
@@ -917,6 +1045,16 @@ class UrlHelperTest < ActiveSupport::TestCase
   def request_forgery_protection_token
     "form_token"
   end
+
+  private
+    def with_prepend_content_exfiltration_prevention(value)
+      old_value = ActionView::Helpers::ContentExfiltrationPreventionHelper.prepend_content_exfiltration_prevention
+      ActionView::Helpers::ContentExfiltrationPreventionHelper.prepend_content_exfiltration_prevention = value
+
+      yield
+    ensure
+      ActionView::Helpers::ContentExfiltrationPreventionHelper.prepend_content_exfiltration_prevention = old_value
+    end
 end
 
 class UrlHelperControllerTest < ActionController::TestCase
@@ -934,7 +1072,7 @@ class UrlHelperControllerTest < ActionController::TestCase
         to: "url_helper_controller_test/url_helper#show_named_route",
         as: :show_named_route
 
-      ActiveSupport::Deprecation.silence do
+      ActionDispatch.deprecator.silence do
         get "/:controller(/:action(/:id))"
       end
 
@@ -1164,7 +1302,7 @@ class PolymorphicControllerTest < ActionController::TestCase
     @routes = WorkshopsController::ROUTES
   end
 
-  def test_new_resource
+  def test_index_resource
     @controller = WorkshopsController.new
 
     get :index
@@ -1176,6 +1314,13 @@ class PolymorphicControllerTest < ActionController::TestCase
 
     get :show, params: { id: 1 }
     assert_equal %{/workshops/1\n<a href="/workshops/1">Workshop</a>}, @response.body
+  end
+
+  def test_existing_cpk_resource
+    @controller = WorkshopsController.new
+
+    get :show, params: { id: "1-27" }
+    assert_equal %{/workshops/1-27\n<a href="/workshops/1-27">Workshop</a>}, @response.body
   end
 
   def test_current_page_when_options_does_not_respond_to_to_hash

@@ -49,6 +49,10 @@ class MigrationGeneratorTest < Rails::Generators::TestCase
     end
   end
 
+  def test_exit_on_failure
+    assert_equal true, generator_class.exit_on_failure?
+  end
+
   def test_add_migration_with_attributes
     migration = "add_title_body_to_posts"
     run_generator [migration, "title:string", "body:text"]
@@ -127,7 +131,7 @@ class MigrationGeneratorTest < Rails::Generators::TestCase
     assert_migration "db/migrate/#{migration}.rb" do |content|
       assert_method :change, content do |change|
         assert_match(/remove_reference :books, :author,.*\sforeign_key: true/, change)
-        assert_match(/remove_reference :books, :distributor/, change) # sanity check
+        assert_match(/remove_reference :books, :distributor/, change) # Ensure the line isn't gone completely
         assert_no_match(/remove_reference :books, :distributor,.*\sforeign_key: true/, change)
       end
     end
@@ -237,7 +241,7 @@ class MigrationGeneratorTest < Rails::Generators::TestCase
     assert_migration "db/migrate/#{migration}.rb" do |content|
       assert_method :change, content do |change|
         assert_match(/add_reference :books, :author,.*\sforeign_key: true/, change)
-        assert_match(/add_reference :books, :distributor/, change) # sanity check
+        assert_match(/add_reference :books, :distributor/, change) # Ensure the line isn't gone completely
         assert_no_match(/add_reference :books, :distributor,.*\sforeign_key: true/, change)
       end
     end

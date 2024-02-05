@@ -214,7 +214,12 @@ class ErrorTest < ActiveModel::TestCase
     person = Person.new
     error = ActiveModel::Error.new(person, :name, foo: :bar)
 
-    assert error != person
+    assert_not_equal error, person
+  end
+
+  test "full_message returns the given message when the attribute contains base" do
+    error = ActiveModel::Error.new(Person.new, :"foo.base", "press the button")
+    assert_equal "foo.base press the button", error.full_message
   end
 
   # details
@@ -236,8 +241,8 @@ class ErrorTest < ActiveModel::TestCase
     )
 
     assert_equal(
-      error.details,
-      { error: :too_short, foo: :bar }
+      { error: :too_short, foo: :bar },
+      error.details
     )
   end
 
@@ -245,6 +250,6 @@ class ErrorTest < ActiveModel::TestCase
     person = Person.new
     error = ActiveModel::Error.new(person, :name, foo: :bar)
 
-    assert_equal(error.details, { error: :invalid, foo: :bar })
+    assert_equal({ error: :invalid, foo: :bar }, error.details)
   end
 end

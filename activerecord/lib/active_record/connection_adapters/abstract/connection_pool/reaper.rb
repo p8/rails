@@ -6,12 +6,14 @@ require "weakref"
 module ActiveRecord
   module ConnectionAdapters
     class ConnectionPool
+      # = Active Record Connection Pool \Reaper
+      #
       # Every +frequency+ seconds, the reaper will call +reap+ and +flush+ on
       # +pool+. A reaper instantiated with a zero frequency will never reap
       # the connection pool.
       #
       # Configure the frequency by setting +reaping_frequency+ in your database
-      # yaml file (default 60 seconds).
+      # YAML file (default 60 seconds).
       class Reaper
         attr_reader :pool, :frequency
 
@@ -41,6 +43,7 @@ module ActiveRecord
                 # Advise multi-threaded app servers to ignore this thread for
                 # the purposes of fork safety warnings
                 Thread.current.thread_variable_set(:fork_safe, true)
+                Thread.current.name = "AR Pool Reaper"
                 running = true
                 while running
                   sleep t

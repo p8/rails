@@ -3,7 +3,7 @@
 require "active_support/core_ext/enumerable"
 
 module ActiveModel
-  # == Active \Model \Serialization
+  # = Active \Model \Serialization
   #
   # Provides a basic serialization to a serializable_hash for your objects.
   #
@@ -33,8 +33,8 @@ module ActiveModel
   # at the private method +read_attribute_for_serialization+.
   #
   # ActiveModel::Serializers::JSON module automatically includes
-  # the <tt>ActiveModel::Serialization</tt> module, so there is no need to
-  # explicitly include <tt>ActiveModel::Serialization</tt>.
+  # the +ActiveModel::Serialization+ module, so there is no need to
+  # explicitly include +ActiveModel::Serialization+.
   #
   # A minimal implementation including JSON would be:
   #
@@ -123,7 +123,7 @@ module ActiveModel
     #   user.serializable_hash(include: { notes: { only: 'title' }})
     #   # => {"name" => "Napoleon", "notes" => [{"title"=>"Battle of Austerlitz"}]}
     def serializable_hash(options = nil)
-      attribute_names = self.attribute_names
+      attribute_names = attribute_names_for_serialization
 
       return serializable_attributes(attribute_names) if options.blank?
 
@@ -148,12 +148,11 @@ module ActiveModel
       hash
     end
 
-    # Returns an array of attribute names as strings
-    def attribute_names # :nodoc:
-      attributes.keys
-    end
-
     private
+      def attribute_names_for_serialization
+        attributes.keys
+      end
+
       # Hook method defining how an attribute value should be retrieved for
       # serialization. By default this is assumed to be an instance named after
       # the attribute. Override this method in subclasses should you need to

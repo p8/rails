@@ -5,7 +5,9 @@ require "action_controller"
 require "action_controller/log_subscriber"
 
 module ActionController
-  # API Controller is a lightweight version of <tt>ActionController::Base</tt>,
+  # = Action Controller \API
+  #
+  # API Controller is a lightweight version of ActionController::Base,
   # created for applications that don't require all functionalities that a complete
   # \Rails controller provides, allowing you to create controllers with just the
   # features that you need for API only applications.
@@ -19,7 +21,7 @@ module ActionController
   # your application, they're just not part of the default API controller stack.
   #
   # Normally, +ApplicationController+ is the only controller that inherits from
-  # <tt>ActionController::API</tt>. All other controllers in turn inherit from
+  # +ActionController::API+. All other controllers in turn inherit from
   # +ApplicationController+.
   #
   # A sample controller could look like this:
@@ -32,7 +34,7 @@ module ActionController
   #   end
   #
   # Request, response, and parameters objects all work the exact same way as
-  # <tt>ActionController::Base</tt>.
+  # ActionController::Base.
   #
   # == Renders
   #
@@ -40,7 +42,7 @@ module ActionController
   # can use <tt>render :json</tt> and siblings freely in your controllers. Keep
   # in mind that templates are not going to be rendered, so you need to ensure
   # your controller is calling either <tt>render</tt> or <tt>redirect_to</tt> in
-  # all actions, otherwise it will return 204 No Content.
+  # all actions, otherwise it will return <tt>204 No Content</tt>.
   #
   #   def show
   #     post = Post.find(params[:id])
@@ -51,7 +53,7 @@ module ActionController
   #
   # Redirects are used to move from one action to another. You can use the
   # <tt>redirect_to</tt> method in your controllers in the same way as in
-  # <tt>ActionController::Base</tt>. For example:
+  # ActionController::Base. For example:
   #
   #   def create
   #     redirect_to root_url and return if not_authorized?
@@ -61,8 +63,8 @@ module ActionController
   # == Adding New Behavior
   #
   # In some scenarios you may want to add back some functionality provided by
-  # <tt>ActionController::Base</tt> that is not present by default in
-  # <tt>ActionController::API</tt>, for instance <tt>MimeResponds</tt>. This
+  # ActionController::Base that is not present by default in
+  # +ActionController::API+, for instance <tt>MimeResponds</tt>. This
   # module gives you the <tt>respond_to</tt> method. Adding it is quite simple,
   # you just need to include the module in a specific controller or in
   # +ApplicationController+ in case you want it available in your entire
@@ -83,9 +85,9 @@ module ActionController
   #     end
   #   end
   #
-  # Make sure to check the modules included in <tt>ActionController::Base</tt>
+  # Make sure to check the modules included in ActionController::Base
   # if you want to use any other functionality that is not provided
-  # by <tt>ActionController::API</tt> out of the box.
+  # by +ActionController::API+ out of the box.
   class API < Metal
     abstract!
 
@@ -119,6 +121,7 @@ module ActionController
       ConditionalGet,
       BasicImplicitRender,
       StrongParameters,
+      RateLimiting,
 
       DataStreaming,
       DefaultHeaders,

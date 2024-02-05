@@ -22,18 +22,24 @@ require "models/project"
 require "models/author"
 require "models/user"
 require "models/room"
+require "models/contract"
+require "models/subscription"
+require "models/subscriber"
+require "models/book"
+require "models/branch"
+require "models/cpk"
 
 class AutomaticInverseFindingTests < ActiveRecord::TestCase
-  fixtures :ratings, :comments, :cars
+  fixtures :ratings, :comments, :cars, :books
 
   def test_has_one_and_belongs_to_should_find_inverse_automatically_on_multiple_word_name
     monkey_reflection = MixedCaseMonkey.reflect_on_association(:human)
     human_reflection = Human.reflect_on_association(:mixed_case_monkey)
 
-    assert monkey_reflection.has_inverse?, "The monkey reflection should have an inverse"
+    assert_predicate monkey_reflection, :has_inverse?, "The monkey reflection should have an inverse"
     assert_equal human_reflection, monkey_reflection.inverse_of, "The monkey reflection's inverse should be the human reflection"
 
-    assert human_reflection.has_inverse?, "The human reflection should have an inverse"
+    assert_predicate human_reflection, :has_inverse?, "The human reflection should have an inverse"
     assert_equal monkey_reflection, human_reflection.inverse_of, "The human reflection's inverse should be the monkey reflection"
   end
 
@@ -41,7 +47,7 @@ class AutomaticInverseFindingTests < ActiveRecord::TestCase
     account_reflection = Admin::Account.reflect_on_association(:users)
     user_reflection = Admin::User.reflect_on_association(:account)
 
-    assert account_reflection.has_inverse?, "The Admin::Account reflection should have an inverse"
+    assert_predicate account_reflection, :has_inverse?, "The Admin::Account reflection should have an inverse"
     assert_equal user_reflection, account_reflection.inverse_of, "The Admin::Account reflection's inverse should be the Admin::User reflection"
   end
 
@@ -49,10 +55,10 @@ class AutomaticInverseFindingTests < ActiveRecord::TestCase
     car_reflection = Car.reflect_on_association(:bulb)
     bulb_reflection = Bulb.reflect_on_association(:car)
 
-    assert car_reflection.has_inverse?, "The Car reflection should have an inverse"
+    assert_predicate car_reflection, :has_inverse?, "The Car reflection should have an inverse"
     assert_equal bulb_reflection, car_reflection.inverse_of, "The Car reflection's inverse should be the Bulb reflection"
 
-    assert bulb_reflection.has_inverse?, "The Bulb reflection should have an inverse"
+    assert_predicate bulb_reflection, :has_inverse?, "The Bulb reflection should have an inverse"
     assert_equal car_reflection, bulb_reflection.inverse_of, "The Bulb reflection's inverse should be the Car reflection"
   end
 
@@ -60,7 +66,7 @@ class AutomaticInverseFindingTests < ActiveRecord::TestCase
     comment_reflection = Comment.reflect_on_association(:ratings)
     rating_reflection = Rating.reflect_on_association(:comment)
 
-    assert comment_reflection.has_inverse?, "The Comment reflection should have an inverse"
+    assert_predicate comment_reflection, :has_inverse?, "The Comment reflection should have an inverse"
     assert_equal rating_reflection, comment_reflection.inverse_of, "The Comment reflection's inverse should be the Rating reflection"
   end
 
@@ -78,11 +84,11 @@ class AutomaticInverseFindingTests < ActiveRecord::TestCase
     post_reflection = Post.reflect_on_association(:author)
 
     assert_respond_to author_reflection, :has_inverse?
-    assert author_reflection.has_inverse?, "The Author reflection should have an inverse"
+    assert_predicate author_reflection, :has_inverse?, "The Author reflection should have an inverse"
     assert_equal post_reflection, author_reflection.inverse_of, "The Author reflection's inverse should be the Post reflection"
 
     assert_respond_to author_child_reflection, :has_inverse?
-    assert author_child_reflection.has_inverse?, "The Author reflection should have an inverse"
+    assert_predicate author_child_reflection, :has_inverse?, "The Author reflection should have an inverse"
     assert_equal post_reflection, author_child_reflection.inverse_of, "The Author reflection's inverse should be the Post reflection"
   end
 
@@ -107,6 +113,51 @@ class AutomaticInverseFindingTests < ActiveRecord::TestCase
 
     assert_not_predicate owner_reflection, :has_inverse?
     assert_not_equal room_reflection, owner_reflection.inverse_of
+  end
+
+  def test_has_many_and_belongs_to_with_a_scope_and_automatic_scope_inversing_should_find_inverse_automatically
+    contacts_reflection = Company.reflect_on_association(:special_contracts)
+    company_reflection = SpecialContract.reflect_on_association(:company)
+
+    assert contacts_reflection.scope
+    assert_not company_reflection.scope
+
+    with_automatic_scope_inversing(contacts_reflection, company_reflection) do
+      assert_predicate contacts_reflection, :has_inverse?
+      assert_equal company_reflection, contacts_reflection.inverse_of
+      assert_not_equal contacts_reflection, company_reflection.inverse_of
+    end
+  end
+
+  def test_has_one_and_belongs_to_with_a_scope_and_automatic_scope_inversing_should_find_inverse_automatically
+    post_reflection = Author.reflect_on_association(:recent_post)
+    author_reflection = Post.reflect_on_association(:author)
+
+    assert post_reflection.scope
+    assert_not author_reflection.scope
+
+    with_automatic_scope_inversing(post_reflection, author_reflection) do
+      assert_predicate post_reflection, :has_inverse?
+      assert_equal author_reflection, post_reflection.inverse_of
+      assert_not_equal post_reflection, author_reflection.inverse_of
+    end
+  end
+
+  def test_has_many_with_scoped_belongs_to_does_not_find_inverse_automatically
+    book = books(:tlg)
+    book.update_attribute(:author_visibility, :invisible)
+
+    assert_nil book.subscriptions.new.book
+
+    subscription_reflection = Book.reflect_on_association(:subscriptions)
+    book_reflection = Subscription.reflect_on_association(:book)
+
+    assert_not subscription_reflection.scope
+    assert book_reflection.scope
+
+    with_automatic_scope_inversing(book_reflection, subscription_reflection) do
+      assert_nil book.subscriptions.new.book
+    end
   end
 
   def test_has_one_and_belongs_to_automatic_inverse_shares_objects
@@ -147,6 +198,16 @@ class AutomaticInverseFindingTests < ActiveRecord::TestCase
 
     comment.body = "Kittens are adorable."
     assert_equal comment.body, rating.comment.body, "Changing the original Comment's body should change the Comment's body on the association"
+  end
+
+  def test_belongs_to_should_find_inverse_has_many_automatically
+    book = Book.create!
+    subscriber = book.subscribers.new nick: "Nickname"
+
+    subscriber.save!
+
+    assert_equal [subscriber], book.reload.subscribers
+    assert_equal 1, book.reload.subscribers.count
   end
 
   def test_polymorphic_and_has_many_through_relationships_should_not_have_inverses
@@ -239,8 +300,8 @@ class InverseAssociationTests < ActiveRecord::TestCase
     Developer.create!(name: "Gorbypuff", firm: firm)
 
     new_project = Project.last
-    assert Project.reflect_on_association(:lead_developer).inverse_of.present?, "Expected inverse of to be present"
-    assert new_project.lead_developer.present?, "Expected lead developer to be present on the project"
+    assert_predicate Project.reflect_on_association(:lead_developer).inverse_of, :present?, "Expected inverse of to be present"
+    assert_predicate new_project.lead_developer, :present?, "Expected lead developer to be present on the project"
   end
 end
 
@@ -341,7 +402,11 @@ class InverseHasOneTests < ActiveRecord::TestCase
       Human.first.confused_face
     }
 
-    assert_match "Did you mean?", error.message
+    if error.respond_to?(:detailed_message)
+      assert_match "Did you mean?", error.detailed_message
+    else
+      assert_match "Did you mean?", error.message
+    end
     assert_equal "confused_human", error.corrections.first
   end
 end
@@ -549,6 +614,15 @@ class InverseHasManyTests < ActiveRecord::TestCase
     end
   end
 
+  def test_inverse_should_be_set_on_composite_primary_key_child
+    author = Cpk::Author.new(name: "John")
+    book = author.books.build(id: [nil, 1], title: "The Rails Way")
+    Cpk::Order.new(book: book, status: "paid")
+    author.save!
+
+    assert_predicate book.association(:order), :loaded?
+  end
+
   def test_raise_record_not_found_error_when_invalid_ids_are_passed
     # delete all interest records to ensure that hard coded invalid_id(s)
     # are indeed invalid.
@@ -568,8 +642,8 @@ class InverseHasManyTests < ActiveRecord::TestCase
 
     exception = assert_raise(ActiveRecord::RecordNotFound) { human.interests.load.find() }
 
-    assert_equal exception.model, "Interest"
-    assert_equal exception.primary_key, "id"
+    assert_equal "Interest", exception.model
+    assert_equal "id", exception.primary_key
   end
 
   def test_trying_to_use_inverses_that_dont_exist_should_raise_an_error
@@ -615,6 +689,18 @@ class InverseHasManyTests < ActiveRecord::TestCase
 
     comment.body = "OMG"
     assert_equal comment.body, comment.children.first.parent.body
+  end
+
+  def test_changing_the_association_id_makes_the_inversed_association_target_stale
+    post1 = Post.first
+    post2 = Post.second
+    comment = post1.comments.first
+
+    assert_same post1, comment.post
+
+    comment.update!(post_id: post2.id)
+
+    assert_equal post2, comment.post
   end
 end
 
@@ -718,6 +804,59 @@ class InverseBelongsToTests < ActiveRecord::TestCase
     end
   end
 
+  def test_with_has_many_inversing_does_not_add_duplicate_associated_objects
+    with_has_many_inversing(Interest) do
+      human = Human.new
+      interest = Interest.new(human: human)
+      human.interests << interest
+      assert_equal 1, human.interests.size
+    end
+  end
+
+  def test_with_has_many_inversing_does_not_add_unsaved_duplicate_records_when_collection_is_loaded
+    with_has_many_inversing(Interest) do
+      human = Human.create!
+      human.interests.load
+      interest = Interest.new(human: human)
+      human.interests << interest
+      assert_equal 1, human.interests.size
+    end
+  end
+
+  def test_with_has_many_inversing_does_not_add_saved_duplicate_records_when_collection_is_loaded
+    with_has_many_inversing(Interest) do
+      human = Human.create!
+      human.interests.load
+      interest = Interest.create!(human: human)
+      human.interests << interest
+      assert_equal 1, human.interests.size
+    end
+  end
+
+  def test_recursive_model_has_many_inversing
+    with_has_many_inversing do
+      main = Branch.create!
+      feature = main.branches.create!
+      topic = feature.branches.build
+
+      assert_equal(main, topic.branch.branch)
+    end
+  end
+
+  def test_recursive_inverse_on_recursive_model_has_many_inversing
+    with_has_many_inversing do
+      main = BrokenBranch.create!
+      feature = main.branches.create!
+      topic = feature.branches.build
+
+      error = assert_raises(ActiveRecord::InverseOfAssociationRecursiveError) do
+        topic.branch.branch
+      end
+
+      assert_equal("Inverse association branch (:branch in BrokenBranch) is recursive.", error.message)
+    end
+  end
+
   def test_unscope_does_not_set_inverse_when_incorrect
     interest = interests(:trainspotting)
     human = interest.human
@@ -757,7 +896,11 @@ class InverseBelongsToTests < ActiveRecord::TestCase
       Face.first.confused_human
     }
 
-    assert_match "Did you mean?", error.message
+    if error.respond_to?(:detailed_message)
+      assert_match "Did you mean?", error.detailed_message
+    else
+      assert_match "Did you mean?", error.message
+    end
     assert_equal "confused_face", error.corrections.first
   end
 

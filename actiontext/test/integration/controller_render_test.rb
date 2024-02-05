@@ -4,7 +4,7 @@ require "test_helper"
 
 class ActionText::ControllerRenderTest < ActionDispatch::IntegrationTest
   test "uses current request environment" do
-    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpg")
+    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
     message = Message.create!(content: ActionText::Content.new.append_attachables(blob))
 
     host! "loocalhoost"
@@ -15,12 +15,12 @@ class ActionText::ControllerRenderTest < ActionDispatch::IntegrationTest
   end
 
   test "renders as HTML when the request format is not HTML" do
-    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpg")
+    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
     message = Message.create!(content: ActionText::Content.new.append_attachables(blob))
 
     host! "loocalhoost"
     get message_path(message, format: :json)
-    content = Nokogiri::HTML::DocumentFragment.parse(response.parsed_body["content"])
+    content = ActionText.html_document_fragment_class.parse(response.parsed_body["content"])
     assert_select content, "img:match('src', ?)", %r"//loocalhoost/.+/racecar"
   end
 
@@ -34,7 +34,7 @@ class ActionText::ControllerRenderTest < ActionDispatch::IntegrationTest
   end
 
   test "resolves partials when controller is namespaced" do
-    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpg")
+    blob = create_file_blob(filename: "racecar.jpg", content_type: "image/jpeg")
     message = Message.create!(content: ActionText::Content.new.append_attachables(blob))
 
     get admin_message_path(message)
@@ -47,5 +47,14 @@ class ActionText::ControllerRenderTest < ActionDispatch::IntegrationTest
     get messages_path
 
     assert_select ".mentioned-person", text: alice.name
+  end
+
+  test "resolves missing ActionText::Attachable based on their to_missing_attachable_partial_path" do
+    alice = people(:alice)
+    alice.destroy!
+
+    get messages_path
+
+    assert_select ".missing-attachable", text: "Missing person"
   end
 end

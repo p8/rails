@@ -24,6 +24,33 @@ module ActiveModel
       attribute :string_field, default: "default string"
     end
 
+    class ModelWithGeneratedAttributeMethods
+      include ActiveModel::Attributes
+
+      attribute :foo
+    end
+
+    class ModelWithProxiedAttributeMethods
+      include ActiveModel::AttributeMethods
+
+      attribute_method_suffix "="
+
+      define_attribute_method(:foo)
+
+      def attribute=(_, _)
+      end
+    end
+
+    test "models that proxy attributes do not conflict with models with generated methods" do
+      ModelWithGeneratedAttributeMethods.new
+
+      model = ModelWithProxiedAttributeMethods.new
+
+      assert_nothing_raised do
+        model.foo = "foo"
+      end
+    end
+
     test "properties assignment" do
       data = ModelForAttributesTest.new(
         integer_field: "2.3",
@@ -133,7 +160,7 @@ module ActiveModel
     test "can't modify attributes if frozen" do
       data = ModelForAttributesTest.new
       data.freeze
-      assert data.frozen?
+      assert_predicate data, :frozen?
       assert_raise(FrozenError) { data.integer_field = 1 }
     end
 
@@ -147,6 +174,14 @@ module ActiveModel
       assert_raise(ArgumentError) do
         ModelForAttributesTest.attribute :foo, :unknown
       end
+    end
+
+    test ".type_for_attribute supports attribute aliases" do
+      with_alias = Class.new(ModelForAttributesTest) do
+        alias_attribute :integer_field, :x
+      end
+
+      assert_equal with_alias.type_for_attribute(:integer_field), with_alias.type_for_attribute(:x)
     end
   end
 end

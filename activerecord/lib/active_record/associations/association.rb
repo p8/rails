@@ -19,7 +19,7 @@ module ActiveRecord
     # Associations in Active Record are middlemen between the object that
     # holds the association, known as the <tt>owner</tt>, and the associated
     # result set, known as the <tt>target</tt>. Association metadata is available in
-    # <tt>reflection</tt>, which is an instance of <tt>ActiveRecord::Reflection::AssociationReflection</tt>.
+    # <tt>reflection</tt>, which is an instance of +ActiveRecord::Reflection::AssociationReflection+.
     #
     # For example, given
     #
@@ -33,7 +33,8 @@ module ActiveRecord
     # <tt>owner</tt>, the collection of its posts as <tt>target</tt>, and
     # the <tt>reflection</tt> object represents a <tt>:has_many</tt> macro.
     class Association # :nodoc:
-      attr_reader :owner, :target, :reflection, :disable_joins
+      attr_accessor :owner
+      attr_reader :target, :reflection, :disable_joins
 
       delegate :options, to: :reflection
 
@@ -45,14 +46,14 @@ module ActiveRecord
 
         reset
         reset_scope
+
+        @skip_strict_loading = nil
       end
 
       # Resets the \loaded flag to +false+ and sets the \target to +nil+.
       def reset
         @loaded = false
-        @target = nil
         @stale_state = nil
-        @inversed = false
       end
 
       def reset_negative_cache # :nodoc:
@@ -78,7 +79,6 @@ module ActiveRecord
       def loaded!
         @loaded = true
         @stale_state = stale_state
-        @inversed = false
       end
 
       # The target is stale if the target no longer points to the record(s) that the
@@ -88,7 +88,7 @@ module ActiveRecord
       #
       # Note that if the target has not been loaded, it is not considered stale.
       def stale_target?
-        !@inversed && loaded? && @stale_state != stale_state
+        loaded? && @stale_state != stale_state
       end
 
       # Sets the target of this association to <tt>\target</tt>, and the \loaded flag to +true+.
@@ -137,15 +137,11 @@ module ActiveRecord
 
       def inversed_from(record)
         self.target = record
-        @inversed = !!record
       end
 
       def inversed_from_queries(record)
         if inversable?(record)
           self.target = record
-          @inversed = true
-        else
-          @inversed = false
         end
       end
 
@@ -222,7 +218,7 @@ module ActiveRecord
         end
 
         def find_target
-          if violates_strict_loading? && owner.validation_context.nil?
+          if violates_strict_loading?
             Base.strict_loading_violation!(owner: owner.class, reflection: reflection)
           end
 
@@ -245,7 +241,19 @@ module ActiveRecord
           end
         end
 
+        def skip_strict_loading(&block)
+          skip_strict_loading_was = @skip_strict_loading
+          @skip_strict_loading = true
+          yield
+        ensure
+          @skip_strict_loading = skip_strict_loading_was
+        end
+
         def violates_strict_loading?
+          return if @skip_strict_loading
+
+          return unless owner.validation_context.nil?
+
           return reflection.strict_loading? if reflection.options.key?(:strict_loading)
 
           owner.strict_loading? && !owner.strict_loading_n_plus_one_only?
@@ -295,7 +303,7 @@ module ActiveRecord
 
         # Raises ActiveRecord::AssociationTypeMismatch unless +record+ is of
         # the kind of the class of the associated objects. Meant to be used as
-        # a sanity check when you are about to assign an associated record.
+        # a safety check when you are about to assign an associated record.
         def raise_on_type_mismatch!(record)
           unless record.is_a?(reflection.klass)
             fresh_class = reflection.class_name.safe_constantize
@@ -328,7 +336,8 @@ module ActiveRecord
 
         # Returns true if record contains the foreign_key
         def foreign_key_for?(record)
-          record._has_attribute?(reflection.foreign_key)
+          foreign_key = Array(reflection.foreign_key)
+          foreign_key.all? { |key| record._has_attribute?(key) }
         end
 
         # This should be implemented to return the values of the relevant key(s) on the owner,

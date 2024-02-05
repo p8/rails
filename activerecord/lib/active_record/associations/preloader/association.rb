@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :enddoc:
+
 module ActiveRecord
   module Associations
     class Preloader
@@ -15,19 +17,16 @@ module ActiveRecord
           def eql?(other)
             association_key_name == other.association_key_name &&
               scope.table_name == other.scope.table_name &&
+              scope.connection_specification_name == other.scope.connection_specification_name &&
               scope.values_for_queries == other.scope.values_for_queries
           end
 
           def hash
-            [association_key_name, scope.table_name, scope.values_for_queries].hash
+            [association_key_name, scope.table_name, scope.connection_specification_name, scope.values_for_queries].hash
           end
 
           def records_for(loaders)
-            ids = loaders.flat_map(&:owner_keys).uniq
-
-            scope.where(association_key_name => ids).load do |record|
-              loaders.each { |l| l.set_inverse(record) }
-            end
+            LoaderRecords.new(loaders, self).records
           end
 
           def load_records_in_batch(loaders)
@@ -38,6 +37,66 @@ module ActiveRecord
               loader.run
             end
           end
+
+          def load_records_for_keys(keys, &block)
+            return [] if keys.empty?
+
+            if association_key_name.is_a?(Array)
+              query_constraints = Hash.new { |hsh, key| hsh[key] = Set.new }
+
+              keys.each_with_object(query_constraints) do |values_set, constraints|
+                association_key_name.zip(values_set).each do |key_name, value|
+                  constraints[key_name] << value
+                end
+              end
+
+              scope.where(query_constraints)
+            else
+              scope.where(association_key_name => keys)
+            end.load(&block)
+          end
+        end
+
+        class LoaderRecords
+          def initialize(loaders, loader_query)
+            @loader_query = loader_query
+            @loaders = loaders
+            @keys_to_load = Set.new
+            @already_loaded_records_by_key = {}
+
+            populate_keys_to_load_and_already_loaded_records
+          end
+
+          def records
+            load_records + already_loaded_records
+          end
+
+          private
+            attr_reader :loader_query, :loaders, :keys_to_load, :already_loaded_records_by_key
+
+            def populate_keys_to_load_and_already_loaded_records
+              loaders.each do |loader|
+                loader.owners_by_key.each do |key, owners|
+                  if loaded_owner = owners.find { |owner| loader.loaded?(owner) }
+                    already_loaded_records_by_key[key] = loader.target_for(loaded_owner)
+                  else
+                    keys_to_load << key
+                  end
+                end
+              end
+
+              @keys_to_load.subtract(already_loaded_records_by_key.keys)
+            end
+
+            def load_records
+              loader_query.load_records_for_keys(keys_to_load) do |record|
+                loaders.each { |l| l.set_inverse(record) }
+              end
+            end
+
+            def already_loaded_records
+              already_loaded_records_by_key.values.flatten
+            end
         end
 
         attr_reader :klass
@@ -57,12 +116,8 @@ module ActiveRecord
           @klass.table_name
         end
 
-        def data_available?
-          already_loaded?
-        end
-
         def future_classes
-          if run? || already_loaded?
+          if run?
             []
           else
             [@klass]
@@ -81,11 +136,6 @@ module ActiveRecord
           return self if run?
           @run = true
 
-          if already_loaded?
-            fetch_from_preloaded_records
-            return self
-          end
-
           records = records_by_owner
 
           owners.each do |owner|
@@ -96,23 +146,15 @@ module ActiveRecord
         end
 
         def records_by_owner
-          ensure_loaded unless defined?(@records_by_owner)
+          load_records unless defined?(@records_by_owner)
 
           @records_by_owner
         end
 
         def preloaded_records
-          ensure_loaded unless defined?(@preloaded_records)
+          load_records unless defined?(@preloaded_records)
 
           @preloaded_records
-        end
-
-        def ensure_loaded
-          if already_loaded?
-            fetch_from_preloaded_records
-          else
-            load_records
-          end
         end
 
         # The name of the key on the associated records
@@ -124,8 +166,19 @@ module ActiveRecord
           LoaderQuery.new(scope, association_key_name)
         end
 
-        def owner_keys
-          @owner_keys ||= owners_by_key.keys
+        def owners_by_key
+          @owners_by_key ||= owners.each_with_object({}) do |owner, result|
+            key = derive_key(owner, owner_key_name)
+            (result[key] ||= []) << owner if key
+          end
+        end
+
+        def loaded?(owner)
+          owner.association(reflection.name).loaded?
+        end
+
+        def target_for(owner)
+          Array.wrap(owner.association(reflection.name).target)
         end
 
         def scope
@@ -133,7 +186,7 @@ module ActiveRecord
         end
 
         def set_inverse(record)
-          if owners = owners_by_key[convert_key(record[association_key_name])]
+          if owners = owners_by_key[derive_key(record, association_key_name)]
             # Processing only the first owner
             # because the record is modified but not an owner
             association = owners.first.association(reflection.name)
@@ -146,11 +199,10 @@ module ActiveRecord
           # #compare_by_identity makes such owners different hash keys
           @records_by_owner = {}.compare_by_identity
           raw_records ||= loader_query.records_for([self])
-
           @preloaded_records = raw_records.select do |record|
             assignments = false
 
-            owners_by_key[convert_key(record[association_key_name])]&.each do |owner|
+            owners_by_key[derive_key(record, association_key_name)]&.each do |owner|
               entries = (@records_by_owner[owner] ||= [])
 
               if reflection.collection? || entries.empty?
@@ -169,8 +221,8 @@ module ActiveRecord
           return if preload_scope && !preload_scope.empty_scope?
           return if reflection.collection?
 
-          unscoped_records.each do |record|
-            owners = owners_by_key[convert_key(record[association_key_name])]
+          unscoped_records.select { |r| r[association_key_name].present? }.each do |record|
+            owners = owners_by_key[derive_key(record, association_key_name)]
             owners&.each_with_index do |owner, i|
               association = owner.association(reflection.name)
               association.target = record
@@ -185,36 +237,21 @@ module ActiveRecord
         private
           attr_reader :owners, :reflection, :preload_scope, :model
 
-          def already_loaded?
-            @already_loaded ||= owners.all? { |o| o.association(reflection.name).loaded? }
-          end
-
-          def fetch_from_preloaded_records
-            @records_by_owner = owners.index_with do |owner|
-              Array(owner.association(reflection.name).target)
-            end
-
-            @preloaded_records = records_by_owner.flat_map(&:last)
-          end
-
           # The name of the key on the model which declares the association
           def owner_key_name
             reflection.join_foreign_key
           end
 
           def associate_records_to_owner(owner, records)
+            return if loaded?(owner)
+
             association = owner.association(reflection.name)
+
             if reflection.collection?
-              association.target = records
+              not_persisted_records = association.target.reject(&:persisted?)
+              association.target = records + not_persisted_records
             else
               association.target = records.first
-            end
-          end
-
-          def owners_by_key
-            @owners_by_key ||= owners.each_with_object({}) do |owner, result|
-              key = convert_key(owner[owner_key_name])
-              (result[key] ||= []) << owner if key
             end
           end
 
@@ -224,6 +261,14 @@ module ActiveRecord
             end
 
             @key_conversion_required
+          end
+
+          def derive_key(owner, key)
+            if key.is_a?(Array)
+              key.map { |k| convert_key(owner._read_attribute(k)) }
+            else
+              convert_key(owner._read_attribute(key))
+            end
           end
 
           def convert_key(key)
@@ -243,7 +288,7 @@ module ActiveRecord
           end
 
           def reflection_scope
-            @reflection_scope ||= reflection.join_scopes(klass.arel_table, klass.predicate_builder, klass).inject(&:merge!) || klass.unscoped
+            @reflection_scope ||= reflection.join_scopes(klass.arel_table, klass.predicate_builder, klass).inject(klass.unscoped, &:merge!)
           end
 
           def build_scope

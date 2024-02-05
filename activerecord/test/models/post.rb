@@ -34,6 +34,11 @@ class Post < ActiveRecord::Base
 
   scope :limit_by, lambda { |l| limit(l) }
   scope :locked, -> { lock }
+  scope :most_commented, lambda { |comments_count|
+    joins(:comments)
+    .group("posts.id")
+    .having("count(comments.id) >= #{comments_count}")
+  }
 
   belongs_to :author
   belongs_to :readonly_author, -> { readonly }, class_name: "Author", foreign_key: :author_id
@@ -56,6 +61,7 @@ class Post < ActiveRecord::Base
 
   scope :with_comments, -> { preload(:comments) }
   scope :with_tags, -> { preload(:taggings) }
+  scope :with_tags_cte, -> { with(posts_with_tags: where("tags_count > 0")).from("posts_with_tags AS posts") }
 
   scope :tagged_with, ->(id) { joins(:taggings).where(taggings: { tag_id: id }) }
   scope :tagged_with_comment, ->(comment) { joins(:taggings).where(taggings: { comment: comment }) }
@@ -109,6 +115,7 @@ class Post < ActiveRecord::Base
 
   has_many :category_posts, class_name: "CategoryPost"
   has_many :scategories, through: :category_posts, source: :category
+  has_many :hmt_special_categories, -> { where.not(name: nil) },  through: :category_posts, source: :category, class_name: "SpecialCategory"
   has_and_belongs_to_many :categories
   has_and_belongs_to_many :special_categories, join_table: "categories_posts", association_foreign_key: "category_id"
 
@@ -227,6 +234,7 @@ class FirstPost < ActiveRecord::Base
 
   has_many :comments, foreign_key: :post_id
   has_one  :comment,  foreign_key: :post_id
+  has_one  :comment_with_inverse, class_name: "Comment", inverse_of: :post_with_inverse
 end
 
 class PostWithDefaultSelect < ActiveRecord::Base
@@ -371,6 +379,9 @@ class FakeKlass
 
     def base_class?
       true
+    end
+
+    def deterministic_encrypted_attributes
     end
   end
 

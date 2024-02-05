@@ -235,7 +235,7 @@ module CallbacksTest
     def no; false; end
     def yes; true; end
 
-    def method_missing(sym, *)
+    def method_missing(sym, ...)
       case sym
       when /^log_(.*)/
         @history << $1
@@ -1185,6 +1185,78 @@ module CallbacksTest
       assert_raises(ArgumentError) do
         klass.before_save "tweedle"
       end
+    end
+  end
+
+  class AllSaveCallbacks
+    include ActiveSupport::Callbacks
+
+    attr_reader :history
+    define_callbacks :save
+
+    def initialize
+      @history = []
+    end
+
+    set_callback :save, :before, :before_save_1
+    set_callback :save, :before, :before_save_2
+    set_callback :save, :around, :around_save_1
+    set_callback :save, :around, :around_save_2
+    set_callback :save, :after, :after_save_1
+    set_callback :save, :after, :after_save_2
+
+    def before_save_1
+      @history << __method__.to_s
+    end
+
+    def before_save_2
+      @history <<  __method__.to_s
+    end
+
+    def around_save_1
+      @history <<  __method__.to_s + "_before"
+      yield
+      @history <<  __method__.to_s + "_after"
+    end
+
+    def around_save_2
+      @history <<  __method__.to_s + "_before"
+      yield
+      @history <<  __method__.to_s + "_after"
+    end
+
+    def after_save_1
+      @history <<  __method__.to_s
+    end
+
+    def after_save_2
+      @history <<  __method__.to_s
+    end
+  end
+
+  class RunSpecificCallbackTest < ActiveSupport::TestCase
+    def test_run_callbacks_only_before
+      klass = AllSaveCallbacks.new
+      klass.run_callbacks :save, :before
+      assert_equal ["before_save_1", "before_save_2"], klass.history
+    end
+
+    def test_run_callbacks_only_around
+      klass = AllSaveCallbacks.new
+      klass.run_callbacks :save, :around
+      assert_equal [
+        "around_save_1_before",
+        "around_save_2_before",
+        "around_save_2_after",
+        "around_save_1_after"
+        ],
+        klass.history
+    end
+
+    def test_run_callbacks_only_after
+      klass = AllSaveCallbacks.new
+      klass.run_callbacks :save, :after
+      assert_equal ["after_save_2", "after_save_1"], klass.history
     end
   end
 end

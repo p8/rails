@@ -14,6 +14,8 @@ class YamlSerializationTest < ActiveRecord::TestCase
       topic = Topic.new(written_on: DateTime.now)
       assert_nothing_raised { topic.to_yaml }
     end
+  ensure
+    Topic.reset_column_information
   end
 
   def test_roundtrip
@@ -24,8 +26,8 @@ class YamlSerializationTest < ActiveRecord::TestCase
   end
 
   def test_roundtrip_serialized_column
-    topic = Topic.new(content: { omg: :lol })
-    assert_equal({ omg: :lol }, yaml_load(YAML.dump(topic)).content)
+    topic = Topic.new(content: { "omg" => "lol" })
+    assert_equal({ "omg" => "lol" }, yaml_load(YAML.dump(topic)).content)
   end
 
   def test_psych_roundtrip
@@ -61,8 +63,8 @@ class YamlSerializationTest < ActiveRecord::TestCase
   def test_new_records_remain_new_after_round_trip
     topic = Topic.new
 
-    assert topic.new_record?, "Sanity check that new records are new"
-    assert yaml_load(YAML.dump(topic)).new_record?, "Record should be new after deserialization"
+    assert_predicate topic, :new_record?, "New record should be new"
+    assert_predicate yaml_load(YAML.dump(topic)), :new_record?, "Record should be new after deserialization"
 
     topic.save!
 
@@ -112,25 +114,19 @@ class YamlSerializationTest < ActiveRecord::TestCase
   end
 
   def test_deserializing_rails_41_yaml
-    topic = assert_deprecated do
-      yaml_load(yaml_fixture("rails_4_1"))
+    error = assert_raises(RuntimeError) do
+      yaml_load(yaml_fixture("rails_4_1_no_symbol"))
     end
 
-    assert_predicate topic, :new_record?
-    assert_nil topic.id
-    assert_equal "The First Topic", topic.title
-    assert_equal({ omg: :lol }, topic.content)
+    assert_equal "Active Record doesn't know how to load YAML with this format.", error.message
   end
 
   def test_deserializing_rails_4_2_0_yaml
-    topic = assert_deprecated do
+    error = assert_raises(RuntimeError) do
       yaml_load(yaml_fixture("rails_4_2_0"))
     end
 
-    assert_not_predicate topic, :new_record?
-    assert_equal 1, topic.id
-    assert_equal "The First Topic", topic.title
-    assert_equal("Have a nice day", topic.content)
+    assert_equal "Active Record doesn't know how to load YAML with this format.", error.message
   end
 
   def test_yaml_encoding_keeps_mutations

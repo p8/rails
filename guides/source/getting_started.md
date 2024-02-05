@@ -83,8 +83,6 @@ proper prerequisites installed. These include:
 
 * Ruby
 * SQLite3
-* Node.js
-* Yarn
 
 #### Installing Ruby
 
@@ -95,10 +93,10 @@ current version of Ruby installed:
 
 ```bash
 $ ruby --version
-ruby 2.7.0
+ruby 3.1.0
 ```
 
-Rails requires Ruby version 2.7.0 or later. It is preferred to use latest Ruby version.
+Rails requires Ruby version 3.1.0 or later. It is preferred to use the latest Ruby version.
 If the version number returned is less than that number (such as 2.3.7, or 1.8.7),
 you'll need to install a fresh copy of Ruby.
 
@@ -121,31 +119,6 @@ $ sqlite3 --version
 
 The program should report its version.
 
-#### Installing Node.js and Yarn
-
-Finally, you'll need Node.js and Yarn installed to manage your application's JavaScript.
-
-Find the installation instructions at the [Node.js website](https://nodejs.org/en/download/) and
-verify it's installed correctly with the following command:
-
-```bash
-$ node --version
-```
-
-The version of your Node.js runtime should be printed out. Make sure it's greater
-than 8.16.0.
-
-To install Yarn, follow the installation
-instructions at the [Yarn website](https://classic.yarnpkg.com/en/docs/install).
-
-Running this command should print out Yarn version:
-
-```bash
-$ yarn --version
-```
-
-If it says something like "1.22.0", Yarn has been installed correctly.
-
 #### Installing Rails
 
 To install Rails, use the `gem install` command provided by RubyGems:
@@ -159,9 +132,10 @@ run the following in a new terminal:
 
 ```bash
 $ rails --version
+Rails 7.2.0
 ```
 
-If it says something like "Rails 7.0.0", you are ready to continue.
+If it says something like "Rails 7.2.0", you are ready to continue.
 
 ### Creating the Blog Application
 
@@ -203,6 +177,7 @@ of the files and folders that Rails creates by default:
 |config/|Contains configuration for your application's routes, database, and more. This is covered in more detail in [Configuring Rails Applications](configuring.html).|
 |config.ru|Rack configuration for Rack-based servers used to start the application. For more information about Rack, see the [Rack website](https://rack.github.io/).|
 |db/|Contains your current database schema, as well as the database migrations.|
+|Dockerfile|Configuration file for Docker.|
 |Gemfile<br>Gemfile.lock|These files allow you to specify what gem dependencies are needed for your Rails application. These files are used by the Bundler gem. For more information about Bundler, see the [Bundler website](https://bundler.io).|
 |lib/|Extended modules for your application.|
 |log/|Application log files.|
@@ -213,7 +188,11 @@ of the files and folders that Rails creates by default:
 |test/|Unit tests, fixtures, and other test apparatus. These are covered in [Testing Rails Applications](testing.html).|
 |tmp/|Temporary files (like cache and pid files).|
 |vendor/|A place for all third-party code. In a typical Rails application this includes vendored gems.|
-|.gitignore|This file tells git which files (or patterns) it should ignore. See [GitHub - Ignoring files](https://help.github.com/articles/ignoring-files) for more info about ignoring files.|
+|.dockerignore|This file tells Docker which files it should not copy into the container.|
+|.gitattributes|This file defines metadata for specific paths in a git repository. This metadata can be used by git and other tools to enhance their behavior. See the [gitattributes documentation](https://git-scm.com/docs/gitattributes) for more information.|
+|.github/|Contains GitHub specific files.|
+|.gitignore|This file tells git which files (or patterns) it should ignore. See [GitHub - Ignoring files](https://help.github.com/articles/ignoring-files) for more information about ignoring files.|
+|.rubocop.yml|This file contains the configuration for RuboCop.|
 |.ruby-version|This file contains the default Ruby version.|
 
 Hello, Rails!
@@ -222,7 +201,7 @@ Hello, Rails!
 To begin with, let's get some text up on screen quickly. To do this, you need to
 get your Rails application server running.
 
-### Starting up the Web Server
+### Starting Up the Web Server
 
 You actually have a functional Rails application already. To see it, you need to
 start a web server on your development machine. You can do this by running the
@@ -235,7 +214,7 @@ $ bin/rails server
 TIP: If you are using Windows, you have to pass the scripts under the `bin`
 folder directly to the Ruby interpreter e.g. `ruby bin\rails server`.
 
-TIP: JavaScript asset compression requires you
+TIP: JavaScript asset compression requires you to
 have a JavaScript runtime available on your system, in the absence
 of a runtime you will see an `execjs` error during asset compression.
 Usually macOS and Windows come with a JavaScript runtime installed.
@@ -247,14 +226,14 @@ This will start up Puma, a web server distributed with Rails by default. To see
 your application in action, open a browser window and navigate to
 <http://localhost:3000>. You should see the Rails default information page:
 
-![Yay! You're on Rails! screenshot](images/getting_started/rails_welcome.png)
+![Rails startup page screenshot](images/getting_started/rails_welcome.png)
 
 When you want to stop the web server, hit Ctrl+C in the terminal window where
 it's running. In the development environment, Rails does not generally
 require you to restart the server; changes you make in files will be
 automatically picked up by the server.
 
-The "Yay! You're on Rails!" page is the _smoke test_ for a new Rails
+The Rails startup page is the _smoke test_ for a new Rails
 application: it makes sure that you have your software configured correctly
 enough to serve a page.
 
@@ -305,9 +284,6 @@ create    test/controllers/articles_controller_test.rb
 invoke  helper
 create    app/helpers/articles_helper.rb
 invoke    test_unit
-invoke  assets
-invoke    scss
-create      app/assets/stylesheets/articles.scss
 ```
 
 The most important of these is the controller file,
@@ -338,7 +314,7 @@ and see our text displayed!
 
 ### Setting the Application Home Page
 
-At the moment, <http://localhost:3000> still displays "Yay! You're on Rails!".
+At the moment, <http://localhost:3000> still displays a page with the Ruby on Rails logo.
 Let's display our "Hello, Rails!" text at <http://localhost:3000> as well. To do
 so, we will add a route that maps the *root path* of our application to the
 appropriate controller and action.
@@ -360,6 +336,24 @@ confirming that the `root` route is also mapped to the `index` action of
 
 TIP: To learn more about routing, see [Rails Routing from the Outside In](
 routing.html).
+
+Autoloading
+-----------
+
+Rails applications **do not** use `require` to load application code.
+
+You may have noticed that `ArticlesController` inherits from `ApplicationController`, but `app/controllers/articles_controller.rb` does not have anything like
+
+```ruby
+require "application_controller" # DON'T DO THIS.
+```
+
+Application classes and modules are available everywhere, you do not need and **should not** load anything under `app` with `require`. This feature is called _autoloading_, and you can learn more about it in [_Autoloading and Reloading Constants_](autoloading_and_reloading_constants.html).
+
+You only need `require` calls for two use cases:
+
+* To load files under the `lib` directory.
+* To load gem dependencies that have `require: false` in the `Gemfile`.
 
 MVC and You
 -----------
@@ -414,7 +408,7 @@ database-agnostic.
 Let's take a look at the contents of our new migration file:
 
 ```ruby
-class CreateArticles < ActiveRecord::Migration[7.0]
+class CreateArticles < ActiveRecord::Migration[7.2]
   def change
     create_table :articles do |t|
       t.string :title
@@ -475,7 +469,7 @@ $ bin/rails console
 You should see an `irb` prompt like:
 
 ```irb
-Loading development environment (Rails 7.0.0)
+Loading development environment (Rails 7.2.0)
 irb(main):001:0>
 ```
 
@@ -568,7 +562,7 @@ file, and replace its contents with:
 </ul>
 ```
 
-The above code is a mixture of HTML and *ERB*. ERB is a templating system that
+The above code is a mixture of HTML and *ERB*. ERB, short for [Embedded Ruby](https://docs.ruby-lang.org/en/3.2/ERB.html), is a templating system that
 evaluates Ruby code embedded in a document. Here, we can see two types of ERB
 tags: `<% %>` and `<%= %>`. The `<% %>` tag means "evaluate the enclosed Ruby
 code." The `<%= %>` tag means "evaluate the enclosed Ruby code, and output the
@@ -810,7 +804,7 @@ The `create` action instantiates a new article with values for the title and
 body, and attempts to save it. If the article is saved successfully, the action
 redirects the browser to the article's page at `"http://localhost:3000/articles/#{@article.id}"`.
 Else, the action redisplays the form by rendering `app/views/articles/new.html.erb`
-with a status code 4XX for the app to work fine with [Turbo](https://github.com/hotwired/turbo-rails).
+with status code [422 Unprocessable Entity](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422).
 The title and body here are dummy values. After we create the form, we will come
 back and change these.
 
@@ -1026,8 +1020,8 @@ messages.
 When we submit the form, the `POST /articles` request is mapped to the `create`
 action. The `create` action *does* attempt to save `@article`. Therefore,
 validations *are* checked. If any validation fails, `@article` will not be
-saved, `app/views/articles/new.html.erb` will be rendered with error
-messages with a status code 4XX for the app to work fine with [Turbo](https://github.com/hotwired/turbo-rails).
+saved, and `app/views/articles/new.html.erb` will be rendered with error
+messages.
 
 TIP: To learn more about validations, see [Active Record Validations](
 active_record_validations.html). To learn more about validation error messages,
@@ -1121,9 +1115,8 @@ action will render `app/views/articles/edit.html.erb`.
 The `update` action (re-)fetches the article from the database, and attempts
 to update it with the submitted form data filtered by `article_params`. If no
 validations fail and the update is successful, the action redirects the browser
-to the article's page. Else, the action redisplays the form with error
-messages, by rendering `app/views/articles/edit.html.erb` with a status code 4XX
-for the app to work fine with [Turbo](https://github.com/hotwired/turbo-rails).
+to the article's page. Else, the action redisplays the form — with error
+messages — by rendering `app/views/articles/edit.html.erb`.
 
 #### Using Partials to Share View Code
 
@@ -1259,7 +1252,7 @@ class ArticlesController < ApplicationController
     @article = Article.find(params[:id])
     @article.destroy
 
-    redirect_to root_path
+    redirect_to root_path, status: :see_other
   end
 
   private
@@ -1271,7 +1264,8 @@ end
 
 The `destroy` action fetches the article from the database, and calls [`destroy`](
 https://api.rubyonrails.org/classes/ActiveRecord/Persistence.html#method-i-destroy)
-on it. Then, it redirects the browser to the root path.
+on it. Then, it redirects the browser to the root path with status code
+[303 See Other](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/303).
 
 We have chosen to redirect to the root path because that is our main access
 point for articles. But, in other circumstances, you might choose to redirect to
@@ -1287,22 +1281,21 @@ we can delete an article from its own page:
 
 <ul>
   <li><%= link_to "Edit", edit_article_path(@article) %></li>
-  <li><%= link_to "Destroy", article_path(@article),
-                  method: :delete,
-                  data: { confirm: "Are you sure?" } %></li>
+  <li><%= link_to "Destroy", article_path(@article), data: {
+                    turbo_method: :delete,
+                    turbo_confirm: "Are you sure?"
+                  } %></li>
 </ul>
 ```
 
-In the above code, we're passing a few additional options to `link_to`. The
-`method: :delete` option causes the link to make a `DELETE` request instead of a
-`GET` request. The `data: { confirm: "Are you sure?" }` option causes a
-confirmation dialog to appear when the link is clicked. If the user cancels the
-dialog, the request is aborted. Both of these options are powered by a feature
-of Rails called *Unobtrusive JavaScript* (UJS). The JavaScript file that
-implements these behaviors is included by default in fresh Rails applications.
-
-TIP: To learn more about Unobtrusive JavaScript, see [Working With JavaScript in
-Rails](working_with_javascript_in_rails.html).
+In the above code, we use the `data` option to set the `data-turbo-method` and
+`data-turbo-confirm` HTML attributes of the "Destroy" link. Both of these
+attributes hook into [Turbo](https://turbo.hotwired.dev/), which is included by
+default in fresh Rails applications. `data-turbo-method="delete"` will cause the
+link to make a `DELETE` request instead of a `GET` request.
+`data-turbo-confirm="Are you sure?"` will cause a confirmation dialog to appear
+when the link is clicked. If the user cancels the dialog, the request will be
+aborted.
 
 And that's it! We can now list, show, create, update, and delete articles!
 InCRUDable!
@@ -1353,7 +1346,7 @@ In addition to the model, Rails has also made a migration to create the
 corresponding database table:
 
 ```ruby
-class CreateComments < ActiveRecord::Migration[7.0]
+class CreateComments < ActiveRecord::Migration[7.2]
   def change
     create_table :comments do |t|
       t.string :commenter
@@ -1455,7 +1448,7 @@ controller. Again, we'll use the same generator we used before:
 $ bin/rails generate controller Comments
 ```
 
-This creates four files and one empty directory:
+This creates three files and one empty directory:
 
 | File/Directory                               | Purpose                                  |
 | -------------------------------------------- | ---------------------------------------- |
@@ -1463,7 +1456,6 @@ This creates four files and one empty directory:
 | app/views/comments/                          | Views of the controller are stored here  |
 | test/controllers/comments_controller_test.rb | The test for the controller              |
 | app/helpers/comments_helper.rb               | A view helper file                       |
-| app/assets/stylesheets/comments.scss         | Cascading style sheet for the controller |
 
 Like with any blog, our readers will create their comments directly after
 reading the article, and once they have added their comment, will be sent back
@@ -1481,9 +1473,10 @@ So first, we'll wire up the Article show template
 
 <ul>
   <li><%= link_to "Edit", edit_article_path(@article) %></li>
-  <li><%= link_to "Destroy", article_path(@article),
-                  method: :delete,
-                  data: { confirm: "Are you sure?" } %></li>
+  <li><%= link_to "Destroy", article_path(@article), data: {
+                    turbo_method: :delete,
+                    turbo_confirm: "Are you sure?"
+                  } %></li>
 </ul>
 
 <h2>Add a comment:</h2>
@@ -1547,9 +1540,10 @@ add that to the `app/views/articles/show.html.erb`.
 
 <ul>
   <li><%= link_to "Edit", edit_article_path(@article) %></li>
-  <li><%= link_to "Destroy", article_path(@article),
-                  method: :delete,
-                  data: { confirm: "Are you sure?" } %></li>
+  <li><%= link_to "Destroy", article_path(@article), data: {
+                    turbo_method: :delete,
+                    turbo_confirm: "Are you sure?"
+                  } %></li>
 </ul>
 
 <h2>Comments</h2>
@@ -1621,9 +1615,10 @@ following:
 
 <ul>
   <li><%= link_to "Edit", edit_article_path(@article) %></li>
-  <li><%= link_to "Destroy", article_path(@article),
-                  method: :delete,
-                  data: { confirm: "Are you sure?" } %></li>
+  <li><%= link_to "Destroy", article_path(@article), data: {
+                    turbo_method: :delete,
+                    turbo_confirm: "Are you sure?"
+                  } %></li>
 </ul>
 
 <h2>Comments</h2>
@@ -1681,9 +1676,10 @@ Then you make the `app/views/articles/show.html.erb` look like the following:
 
 <ul>
   <li><%= link_to "Edit", edit_article_path(@article) %></li>
-  <li><%= link_to "Destroy", article_path(@article),
-                  method: :delete,
-                  data: { confirm: "Are you sure?" } %></li>
+  <li><%= link_to "Destroy", article_path(@article), data: {
+                    turbo_method: :delete,
+                    turbo_confirm: "Are you sure?"
+                  } %></li>
 </ul>
 
 <h2>Comments</h2>
@@ -1712,7 +1708,9 @@ app/controllers/concerns
 app/models/concerns
 ```
 
-A given blog article might have various statuses - for instance, it might be visible to everyone (i.e. `public`), or only visible to the author (i.e. `private`). It may also be hidden to all but still retrievable (i.e. `archived`). Comments may similarly be hidden or visible. This could be represented using a `status` column in each model.
+In the example below, we will implement a new feature for our blog that would benefit from using a concern. Then, we will create a concern, and refactor the code to use it, making the code more DRY and maintainable.
+
+A blog article might have various statuses - for instance, it might be visible to everyone (i.e. `public`), or only visible to the author (i.e. `private`). It may also be hidden to all but still retrievable (i.e. `archived`). Comments may similarly be hidden or visible. This could be represented using a `status` column in each model.
 
 First, let's run the following migrations to add `status` to `Articles` and `Comments`:
 
@@ -1727,12 +1725,16 @@ And next, let's update the database with the generated migrations:
 $ bin/rails db:migrate
 ```
 
+To choose the status for the existing articles and comments you can add a default value to the generated migration files by adding the `default: "public"` option and launch the migrations again. You can also call in a rails console `Article.update_all(status: "public")` and `Comment.update_all(status: "public")`.
+
+
 TIP: To learn more about migrations, see [Active Record Migrations](
 active_record_migrations.html).
 
 We also have to permit the `:status` key as part of the strong parameter, in `app/controllers/articles_controller.rb`:
 
 ```ruby
+
   private
     def article_params
       params.require(:article).permit(:title, :body, :status)
@@ -1742,13 +1744,14 @@ We also have to permit the `:status` key as part of the strong parameter, in `ap
 and in `app/controllers/comments_controller.rb`:
 
 ```ruby
+
   private
     def comment_params
       params.require(:comment).permit(:commenter, :body, :status)
     end
 ```
 
-Within the `article` model, after running a migration to add a `status` column, you would add:
+Within the `article` model, after running a migration to add a `status` column using `bin/rails db:migrate` command, you would add:
 
 ```ruby
 class Article < ApplicationRecord
@@ -1919,12 +1922,12 @@ Our blog has <%= Article.public_count %> articles and counting!
 <%= link_to "New Article", new_article_path %>
 ```
 
-To finish up, we will add a select box to the forms, and let the user select the status when they create a new article or post a new comment. We can also specify the default status as `public`. In `app/views/articles/_form.html.erb`, we can add:
+To finish up, we will add a select box to the forms, and let the user select the status when they create a new article or post a new comment. We can also select the status of the object, or a default of `public` if it hasn't been set yet. In `app/views/articles/_form.html.erb`, we can add:
 
 ```html+erb
 <div>
   <%= form.label :status %><br>
-  <%= form.select :status, ['public', 'private', 'archived'], selected: 'public' %>
+  <%= form.select :status, Visible::VALID_STATUSES, selected: article.status || 'public' %>
 </div>
 ```
 
@@ -1933,7 +1936,7 @@ and in `app/views/comments/_form.html.erb`:
 ```html+erb
 <p>
   <%= form.label :status %><br>
-  <%= form.select :status, ['public', 'private', 'archived'], selected: 'public' %>
+  <%= form.select :status, Visible::VALID_STATUSES, selected: 'public' %>
 </p>
 ```
 
@@ -1948,21 +1951,24 @@ So first, let's add the delete link in the
 `app/views/comments/_comment.html.erb` partial:
 
 ```html+erb
-<p>
-  <strong>Commenter:</strong>
-  <%= comment.commenter %>
-</p>
+<% unless comment.archived? %>
+  <p>
+    <strong>Commenter:</strong>
+    <%= comment.commenter %>
+  </p>
 
-<p>
-  <strong>Comment:</strong>
-  <%= comment.body %>
-</p>
+  <p>
+    <strong>Comment:</strong>
+    <%= comment.body %>
+  </p>
 
-<p>
-  <%= link_to 'Destroy Comment', [comment.article, comment],
-              method: :delete,
-              data: { confirm: "Are you sure?" } %>
-</p>
+  <p>
+    <%= link_to "Destroy Comment", [comment.article, comment], data: {
+                  turbo_method: :delete,
+                  turbo_confirm: "Are you sure?"
+                } %>
+  </p>
+<% end %>
 ```
 
 Clicking this new "Destroy Comment" link will fire off a `DELETE
@@ -1982,7 +1988,7 @@ class CommentsController < ApplicationController
     @article = Article.find(params[:article_id])
     @comment = @article.comments.find(params[:id])
     @comment.destroy
-    redirect_to article_path(@article)
+    redirect_to article_path(@article), status: :see_other
   end
 
   private
@@ -2037,7 +2043,6 @@ so we write that:
 
 ```ruby
 class ArticlesController < ApplicationController
-
   http_basic_authenticate_with name: "dhh", password: "secret", except: [:index, :show]
 
   def index
@@ -2045,6 +2050,7 @@ class ArticlesController < ApplicationController
   end
 
   # snippet for brevity
+end
 ```
 
 We also want to allow only authenticated users to delete comments, so in the
@@ -2052,7 +2058,6 @@ We also want to allow only authenticated users to delete comments, so in the
 
 ```ruby
 class CommentsController < ApplicationController
-
   http_basic_authenticate_with name: "dhh", password: "secret", only: :destroy
 
   def create
@@ -2061,12 +2066,16 @@ class CommentsController < ApplicationController
   end
 
   # snippet for brevity
+end
 ```
 
 Now if you try to create a new article, you will be greeted with a basic HTTP
 Authentication challenge:
 
 ![Basic HTTP Authentication Challenge](images/getting_started/challenge.png)
+
+After entering the correct username and password, you will remain authenticated
+until a different username and password is required or the browser is closed.
 
 Other authentication methods are available for Rails applications. Two popular
 authentication add-ons for Rails are the
@@ -2093,7 +2102,6 @@ resources:
 
 * The [Ruby on Rails Guides](index.html)
 * The [Ruby on Rails mailing list](https://discuss.rubyonrails.org/c/rubyonrails-talk)
-* The [#rubyonrails](irc://irc.freenode.net/#rubyonrails) channel on irc.freenode.net
 
 
 Configuration Gotchas

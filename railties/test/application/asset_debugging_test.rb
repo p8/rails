@@ -49,7 +49,7 @@ module ApplicationTests
       class ::PostsController < ActionController::Base ; end
 
       # the debug_assets params isn't used if compile is off
-      get "/posts?debug_assets=true"
+      get("/posts?debug_assets=true", {}, "HTTPS" => "on")
       assert_match(/<script src="\/assets\/application-([0-z]+)\.js"><\/script>/, last_response.body)
       assert_no_match(/<script src="\/assets\/xmlhr-([0-z]+)\.js"><\/script>/, last_response.body)
     end
@@ -62,7 +62,7 @@ module ApplicationTests
 
       class ::PostsController < ActionController::Base ; end
 
-      get "/posts?debug_assets=true"
+      get("/posts?debug_assets=true", {}, "HTTPS" => "on")
       assert_match(/<script src="\/assets\/application(\.debug|\.self)?-([0-z]+)\.js(\?body=1)?"><\/script>/, last_response.body)
     end
 
@@ -77,7 +77,7 @@ module ApplicationTests
         javascript_path:        %r{/javascripts/#{contents}},
         stylesheet_path:        %r{/stylesheets/#{contents}},
         image_tag:              %r{<img src="/images/#{contents}"},
-        favicon_link_tag:       %r{<link rel="shortcut icon" type="image/x-icon" href="/images/#{contents}" />},
+        favicon_link_tag:       %r{<link rel="icon" type="image/x-icon" href="/images/#{contents}" />},
         stylesheet_link_tag:    %r{<link rel="stylesheet" href="/stylesheets/#{contents}.css" />},
         javascript_include_tag: %r{<script src="/javascripts/#{contents}.js">},
         audio_tag:              %r{<audio src="/audios/#{contents}"></audio>},

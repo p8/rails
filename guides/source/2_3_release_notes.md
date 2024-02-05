@@ -266,7 +266,7 @@ end
 
 ### More Efficient Routing
 
-There are a couple of significant routing changes in Rails 2.3. The `formatted_` route helpers are gone, in favor just passing in `:format` as an option. This cuts down the route generation process by 50% for any resource - and can save a substantial amount of memory (up to 100MB on large applications). If your code uses the `formatted_` helpers, it will still work for the time being - but that behavior is deprecated and your application will be more efficient if you rewrite those routes using the new standard. Another big change is that Rails now supports multiple routing files, not just `routes.rb`. You can use `RouteSet#add_configuration_file` to bring in more routes at any time - without clearing the currently-loaded routes. While this change is most useful for Engines, you can use it in any application that needs to load routes in batches.
+There are a couple of significant routing changes in Rails 2.3. The `formatted_` route helpers are gone, in favor just passing in `:format` as an option. This cuts down the route generation process by 50% for any resource - and can save a substantial amount of memory (up to 100MB on large applications). If your code uses the `formatted_` helpers, it will still work for the time being - but that behavior is deprecated and your application will be more efficient if you rewrite those routes using the new standard. Another big change is that Rails now supports multiple routing files, not just `routes.rb`. You can use `RouteSet#add_configuration_file` to bring in more routes at any time - without clearing the currently loaded routes. While this change is most useful for Engines, you can use it in any application that needs to load routes in batches.
 
 * Lead Contributors: [Aaron Batalion](http://blog.hungrymachine.com/)
 
@@ -469,7 +469,7 @@ options_from_collection_for_select(@product.sizes, :name, :id, :disabled => lamb
 ```
 
 * Lead Contributor: [Tekin Suleyman](http://tekin.co.uk/)
-* More Information: [New in rails 2.3 - disabled option tags and lambdas for selecting and disabling options from collections](https://tekin.co.uk/2009/03/new-in-rails-23-disabled-option-tags-and-lambdas-for-selecting-and-disabling-options-from-collections)
+* More Information: [New in Rails 2.3 - disabled option tags and lambdas for selecting and disabling options from collections](https://tekin.co.uk/2009/03/new-in-rails-23-disabled-option-tags-and-lambdas-for-selecting-and-disabling-options-from-collections)
 
 ### A Note About Template Loading
 

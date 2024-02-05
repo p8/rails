@@ -18,6 +18,7 @@ Mime::Type.register "image/gif", :gif, [], %w(gif)
 Mime::Type.register "image/bmp", :bmp, [], %w(bmp)
 Mime::Type.register "image/tiff", :tiff, [], %w(tif tiff)
 Mime::Type.register "image/svg+xml", :svg
+Mime::Type.register "image/webp", :webp, [], %w(webp)
 
 Mime::Type.register "video/mpeg", :mpeg, [], %w(mpg mpeg mpe)
 
@@ -43,7 +44,8 @@ Mime::Type.register "application/x-www-form-urlencoded", :url_encoded_form
 
 # https://www.ietf.org/rfc/rfc4627.txt
 # http://www.json.org/JSONRequest.html
-Mime::Type.register "application/json", :json, %w( text/x-json application/jsonrequest )
+# https://www.ietf.org/rfc/rfc7807.txt
+Mime::Type.register "application/json", :json, %w( text/x-json application/jsonrequest application/problem+json )
 
 Mime::Type.register "application/pdf", :pdf, [], %w(pdf)
 Mime::Type.register "application/zip", :zip, [], %w(zip)

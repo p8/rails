@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module ActionView
-  # = Action View Cache Helper
   module Helpers # :nodoc:
+    # = Action View Cache \Helpers
     module CacheHelper
       class UncacheableFragmentError < StandardError; end
 
@@ -281,30 +281,25 @@ module ActionView
         controller.read_fragment(name, options)
       end
 
-      def write_fragment_for(name, options)
-        pos = output_buffer.length
-        yield
-        output_safe = output_buffer.html_safe?
-        fragment = output_buffer.slice!(pos..-1)
-        if output_safe
-          self.output_buffer = output_buffer.class.new(output_buffer)
-        end
+      def write_fragment_for(name, options, &block)
+        fragment = output_buffer.capture(&block)
         controller.write_fragment(name, fragment, options)
       end
 
-      class CachingRegistry
-        extend ActiveSupport::PerThreadRegistry
+      module CachingRegistry # :nodoc:
+        extend self
 
-        attr_accessor :caching
-        alias caching? caching
+        def caching?
+          ActiveSupport::IsolatedExecutionState[:action_view_caching] ||= false
+        end
 
-        def self.track_caching
-          caching_was = self.caching
-          self.caching = true
+        def track_caching
+          caching_was = ActiveSupport::IsolatedExecutionState[:action_view_caching]
+          ActiveSupport::IsolatedExecutionState[:action_view_caching] = true
 
           yield
         ensure
-          self.caching = caching_was
+          ActiveSupport::IsolatedExecutionState[:action_view_caching] = caching_was
         end
       end
     end

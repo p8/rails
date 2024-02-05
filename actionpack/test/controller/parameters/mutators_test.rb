@@ -169,4 +169,33 @@ class ParametersMutatorsTest < ActiveSupport::TestCase
   test "compact_blank! retains unpermitted status" do
     assert_not_predicate @params.compact_blank!, :permitted?
   end
+
+  test "to_h returns a ActiveSupport::HashWithIndifferentAccess" do
+    @params.permit!
+    params_hash = @params.to_h
+    assert_instance_of ActiveSupport::HashWithIndifferentAccess, params_hash
+  end
+
+  # rubocop:disable Style/HashTransformKeys
+  test "to_h receives a block and transforms keys" do
+    params = ActionController::Parameters.new(name: "Alex", age: "40", location: "Beijing")
+    params.permit!
+    params_hash = params.to_h { |key, value| [:"#{key}_modified", value] }
+    assert_equal %w(name_modified age_modified location_modified), params_hash.keys
+  end
+  # rubocop:enable Style/HashTransformKeys
+
+  # rubocop:disable Style/HashTransformValues
+  test "to_h receives a block and transforms values" do
+    params = ActionController::Parameters.new(name: "Alex", age: "40", location: "Beijing")
+    params.permit!
+    params_hash = params.to_h { |key, value| [key, value.is_a?(String) ? "#{value}_modified" : value] }
+    assert_equal %w(Alex_modified 40_modified Beijing_modified), params_hash.values
+  end
+  # rubocop:enable Style/HashTransformValues
+
+  test "to_h does not include unpermitted params" do
+    params = ActionController::Parameters.new(name: "Alex", age: "40", location: "Beijing")
+    assert_raises(ActionController::UnfilteredParameters) { params.to_h { |key, value| [key, value] } }
+  end
 end

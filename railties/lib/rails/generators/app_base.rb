@@ -4,6 +4,7 @@ require "fileutils"
 require "digest/md5"
 require "rails/version" unless defined?(Rails::VERSION)
 require "open-uri"
+require "tsort"
 require "uri"
 require "rails/generators"
 require "active_support/core_ext/array/extract_options"
@@ -13,6 +14,13 @@ module Rails
     class AppBase < Base # :nodoc:
       include Database
       include AppName
+
+      NODE_LTS_VERSION = "18.15.0"
+      BUN_VERSION = "1.0.1"
+
+      JAVASCRIPT_OPTIONS = %w( importmap bun webpack esbuild rollup )
+      CSS_OPTIONS = %w( tailwind bootstrap bulma postcss sass )
+      ASSET_PIPELINE_OPTIONS = %w( none sprockets propshaft )
 
       attr_accessor :rails_template
       add_shebang_option!
@@ -24,96 +32,125 @@ module Rails
       end
 
       def self.add_shared_options_for(name)
+        class_option :name,                type: :string, aliases: "-n",
+                                           desc: "Name of the app"
+
         class_option :template,            type: :string, aliases: "-m",
                                            desc: "Path to some #{name} template (can be a filesystem path or URL)"
 
         class_option :database,            type: :string, aliases: "-d", default: "sqlite3",
-                                           desc: "Preconfigure for selected database (options: #{DATABASES.join('/')})"
+                                           enum: DATABASES,
+                                           desc: "Preconfigure for selected database"
 
-        class_option :skip_git,            type: :boolean, aliases: "-G", default: false,
-                                           desc: "Skip .gitignore file"
+        class_option :skip_git,            type: :boolean, aliases: "-G", default: nil,
+                                           desc: "Skip git init, .gitignore and .gitattributes"
 
-        class_option :skip_keeps,          type: :boolean, default: false,
+        class_option :skip_docker,         type: :boolean, default: nil,
+                                           desc: "Skip Dockerfile, .dockerignore and bin/docker-entrypoint"
+
+        class_option :skip_keeps,          type: :boolean, default: nil,
                                            desc: "Skip source control .keep files"
 
         class_option :skip_action_mailer,  type: :boolean, aliases: "-M",
-                                           default: false,
+                                           default: nil,
                                            desc: "Skip Action Mailer files"
 
-        class_option :skip_action_mailbox, type: :boolean, default: false,
+        class_option :skip_action_mailbox, type: :boolean, default: nil,
                                            desc: "Skip Action Mailbox gem"
 
-        class_option :skip_action_text,    type: :boolean, default: false,
+        class_option :skip_action_text,    type: :boolean, default: nil,
                                            desc: "Skip Action Text gem"
 
-        class_option :skip_active_record,  type: :boolean, aliases: "-O", default: false,
+        class_option :skip_active_record,  type: :boolean, aliases: "-O", default: nil,
                                            desc: "Skip Active Record files"
 
-        class_option :skip_active_job,     type: :boolean, default: false,
+        class_option :skip_active_job,     type: :boolean, default: nil,
                                            desc: "Skip Active Job"
 
-        class_option :skip_active_storage, type: :boolean, default: false,
+        class_option :skip_active_storage, type: :boolean, default: nil,
                                            desc: "Skip Active Storage files"
 
-        class_option :skip_action_cable,   type: :boolean, aliases: "-C", default: false,
+        class_option :skip_action_cable,   type: :boolean, aliases: "-C", default: nil,
                                            desc: "Skip Action Cable files"
 
-        class_option :skip_sprockets,      type: :boolean, aliases: "-S", default: false,
-                                           desc: "Skip Sprockets files"
+        class_option :skip_asset_pipeline, type: :boolean, aliases: "-A", default: nil
 
-        class_option :skip_javascript,     type: :boolean, aliases: "-J", default: name == "plugin",
+        class_option :asset_pipeline,      type: :string, aliases: "-a", default: "sprockets",
+                                           enum: ASSET_PIPELINE_OPTIONS,
+                                           desc: "Choose your asset pipeline"
+
+        class_option :skip_javascript,     type: :boolean, aliases: ["-J", "--skip-js"], default: (true if name == "plugin"),
                                            desc: "Skip JavaScript files"
 
-        class_option :skip_hotwire,        type: :boolean, default: false,
+        class_option :skip_hotwire,        type: :boolean, default: nil,
                                            desc: "Skip Hotwire integration"
 
-        class_option :skip_jbuilder,       type: :boolean, default: false,
+        class_option :skip_jbuilder,       type: :boolean, default: nil,
                                            desc: "Skip jbuilder gem"
 
-        class_option :skip_test,           type: :boolean, aliases: "-T", default: false,
+        class_option :skip_test,           type: :boolean, aliases: "-T", default: nil,
                                            desc: "Skip test files"
 
-        class_option :skip_system_test,    type: :boolean, default: false,
+        class_option :skip_system_test,    type: :boolean, default: nil,
                                            desc: "Skip system test files"
 
-        class_option :skip_bootsnap,       type: :boolean, default: false,
+        class_option :skip_bootsnap,       type: :boolean, default: nil,
                                            desc: "Skip bootsnap gem"
 
-        class_option :dev,                 type: :boolean, default: false,
+        class_option :skip_dev_gems,       type: :boolean, default: nil,
+                                           desc: "Skip development gems (e.g., web-console)"
+
+        class_option :skip_rubocop,        type: :boolean, default: nil,
+                                           desc: "Skip RuboCop setup"
+
+        class_option :skip_brakeman,       type: :boolean, default: nil,
+                                           desc: "Skip brakeman setup"
+
+        class_option :skip_ci,             type: :boolean, default: nil,
+                                           desc: "Skip GitHub CI files"
+
+        class_option :dev,                 type: :boolean, default: nil,
                                            desc: "Set up the #{name} with Gemfile pointing to your Rails checkout"
 
-        class_option :edge,                type: :boolean, default: false,
-                                           desc: "Set up the #{name} with Gemfile pointing to Rails repository"
+        class_option :edge,                type: :boolean, default: nil,
+                                           desc: "Set up the #{name} with a Gemfile pointing to the #{edge_branch} branch on the Rails repository"
 
-        class_option :main,                type: :boolean, default: false, aliases: "--master",
+        class_option :main,                type: :boolean, default: nil, aliases: "--master",
                                            desc: "Set up the #{name} with Gemfile pointing to Rails repository main branch"
 
         class_option :rc,                  type: :string, default: nil,
                                            desc: "Path to file containing extra configuration options for rails command"
 
-        class_option :no_rc,               type: :boolean, default: false,
+        class_option :no_rc,               type: :boolean, default: nil,
                                            desc: "Skip loading of extra configuration options from .railsrc file"
 
         class_option :help,                type: :boolean, aliases: "-h", group: :rails,
                                            desc: "Show this help message and quit"
       end
 
-      def initialize(*)
+      def self.edge_branch # :nodoc:
+        Rails.gem_version.prerelease? ? "main" : [*Rails.gem_version.segments.first(2), "stable"].join("-")
+      end
+
+      def initialize(positional_argv, option_argv, *)
+        @argv = [*positional_argv, *option_argv]
         @gem_filter = lambda { |gem| true }
         super
       end
 
     private
       def gemfile_entries # :doc:
-        [rails_gemfile_entry,
-         database_gemfile_entry,
-         web_server_gemfile_entry,
-         javascript_gemfile_entry,
-         hotwire_gemfile_entry,
-         css_gemfile_entry,
-         jbuilder_gemfile_entry,
-         psych_gemfile_entry,
-         cable_gemfile_entry].flatten.find_all(&@gem_filter)
+        [
+          rails_gemfile_entry,
+          asset_pipeline_gemfile_entry,
+          database_gemfile_entry,
+          web_server_gemfile_entry,
+          javascript_gemfile_entry,
+          hotwire_gemfile_entry,
+          css_gemfile_entry,
+          jbuilder_gemfile_entry,
+          cable_gemfile_entry,
+        ].flatten.compact.select(&@gem_filter)
       end
 
       def builder # :doc:
@@ -126,6 +163,89 @@ module Rails
 
       def build(meth, *args) # :doc:
         builder.public_send(meth, *args) if builder.respond_to?(meth)
+      end
+
+      def deduce_implied_options(options, option_reasons, meta_options)
+        active = options.transform_values { |value| [] if value }.compact
+        irrevocable = (active.keys - meta_options).to_set
+
+        deduction_order = TSort.tsort(
+          ->(&block) { option_reasons.each_key(&block) },
+          ->(key, &block) { option_reasons[key]&.each(&block) }
+        )
+
+        deduction_order.each do |name|
+          active_reasons = option_reasons[name].to_a.select(&active)
+          active[name] ||= active_reasons if active_reasons.any?
+          irrevocable << name if active_reasons.any?(irrevocable)
+        end
+
+        revoked = options.select { |name, value| value == false }.keys.to_set - irrevocable
+        deduction_order.reverse_each do |name|
+          revoked += option_reasons[name].to_a if revoked.include?(name)
+        end
+        revoked -= meta_options
+
+        active.filter_map do |name, reasons|
+          unless revoked.include?(name) || reasons.all?(revoked)
+            [name, reasons - revoked.to_a]
+          end
+        end.to_h
+      end
+
+      OPTION_IMPLICATIONS = { # :nodoc:
+        skip_active_job:     [:skip_action_mailer, :skip_active_storage],
+        skip_active_record:  [:skip_active_storage],
+        skip_active_storage: [:skip_action_mailbox, :skip_action_text],
+        skip_javascript:     [:skip_hotwire],
+      }
+
+      # ==== Options
+      #
+      # [+:meta_options+]
+      #   A list of generator options which only serve to trigger other options.
+      #   These options should have no other effects, and will be treated
+      #   transparently when revoking other options.
+      #
+      #   For example: --minimal implies both --skip-active-job and
+      #   --skip-active-storage. Also, --skip-active-job by itself implies
+      #   --skip-active-storage. If --skip-active-job is explicitly
+      #   specified, --no-skip-active-storage should raise an error. But, if
+      #   only --minimal is specified, --no-skip-active-storage should "undo"
+      #   the implied --skip-active-job. This can be accomplished by passing
+      #   <tt>meta_options: [:minimal]</tt>.
+      #
+      #   In contrast, --api is not a meta option because it does other things
+      #   besides implying options such as --skip-asset-pipeline. (And so --api
+      #   with --no-skip-asset-pipeline should raise an error.)
+      def imply_options(option_implications = OPTION_IMPLICATIONS, meta_options: [])
+        option_reasons = {}
+        option_implications.each do |reason, implications|
+          implications.each do |implication|
+            (option_reasons[implication.to_s] ||= []) << reason.to_s
+          end
+        end
+
+        @implied_options = deduce_implied_options(options, option_reasons, meta_options.map(&:to_s))
+        @implied_options_conflicts = @implied_options.keys.select { |name| options[name] == false }
+        self.options = options.merge(@implied_options.transform_values { true }).freeze
+      end
+
+      def report_implied_options
+        return if @implied_options.blank?
+
+        say "Based on the specified options, the following options will also be activated:"
+        say ""
+        @implied_options.each do |name, reasons|
+          due_to = reasons.map { |reason| "--#{reason.dasherize}" }.join(", ")
+          say "  --#{name.dasherize} [due to #{due_to}]"
+          if @implied_options_conflicts.include?(name)
+            say "    ERROR: Conflicts with --no-#{name.dasherize}", :red
+          end
+        end
+        say ""
+
+        raise "Cannot proceed due to conflicting options" if @implied_options_conflicts.any?
       end
 
       def create_root # :doc:
@@ -143,42 +263,72 @@ module Rails
 
       def set_default_accessors! # :doc:
         self.destination_root = File.expand_path(app_path, destination_root)
-        self.rails_template = \
-          case options[:template]
-          when /^https?:\/\//
-            options[:template]
-          when String
-            File.expand_path(`echo #{options[:template]}`.strip)
-          else
-            options[:template]
-          end
+
+        if options[:template].is_a?(String) && !options[:template].match?(/^https?:\/\//)
+          interpolated = options[:template].gsub(/\$(\w+)|\$\{\g<1>\}|%\g<1>%/) { |m| ENV[$1] || m }
+          self.rails_template = File.expand_path(interpolated)
+        else
+          self.rails_template = options[:template]
+        end
       end
 
       def database_gemfile_entry # :doc:
-        return [] if options[:skip_active_record]
+        return if options[:skip_active_record]
+
         gem_name, gem_version = gem_for_database
         GemfileEntry.version gem_name, gem_version,
           "Use #{options[:database]} as the database for Active Record"
       end
 
       def web_server_gemfile_entry # :doc:
-        GemfileEntry.new "puma", "~> 5.0", "Use the Puma web server [https://github.com/puma/puma]"
+        GemfileEntry.new "puma", ">= 5.0", "Use the Puma web server [https://github.com/puma/puma]"
+      end
+
+      def asset_pipeline_gemfile_entry
+        return if skip_asset_pipeline?
+
+        if options[:asset_pipeline] == "sprockets"
+          GemfileEntry.floats "sprockets-rails",
+            "The original asset pipeline for Rails [https://github.com/rails/sprockets-rails]"
+        elsif options[:asset_pipeline] == "propshaft"
+          GemfileEntry.floats "propshaft", "The modern asset pipeline for Rails [https://github.com/rails/propshaft]"
+        end
+      end
+
+      def required_railties
+        @required_railties ||= {
+          "active_model/railtie"      => true,
+          "active_job/railtie"        => !options[:skip_active_job],
+          "active_record/railtie"     => !options[:skip_active_record],
+          "active_storage/engine"     => !options[:skip_active_storage],
+          "action_controller/railtie" => true,
+          "action_mailer/railtie"     => !options[:skip_action_mailer],
+          "action_mailbox/engine"     => !options[:skip_action_mailbox],
+          "action_text/engine"        => !options[:skip_action_text],
+          "action_view/railtie"       => true,
+          "action_cable/engine"       => !options[:skip_action_cable],
+          "rails/test_unit/railtie"   => !options[:skip_test],
+        }
       end
 
       def include_all_railties? # :doc:
-        [
-          options.values_at(
-            :skip_active_record,
-            :skip_action_mailer,
-            :skip_test,
-            :skip_sprockets,
-            :skip_action_cable,
-            :skip_active_job
-          ),
-          skip_active_storage?,
-          skip_action_mailbox?,
-          skip_action_text?
-        ].flatten.none?
+        required_railties.values.all?
+      end
+
+      def rails_require_statement
+        if include_all_railties?
+          %(require "rails/all")
+        else
+          require_statements = required_railties.map do |railtie, required|
+            %(#{"# " if !required}require "#{railtie}")
+          end
+
+          <<~RUBY.strip
+            require "rails"
+            # Pick the frameworks you want:
+            #{require_statements.join("\n")}
+          RUBY
+        end
       end
 
       def comment_if(value) # :doc:
@@ -199,23 +349,55 @@ module Rails
       end
 
       def sqlite3? # :doc:
-        !options[:skip_active_record] && options[:database] == "sqlite3"
+        !skip_active_record? && options[:database] == "sqlite3"
+      end
+
+      def skip_active_record? # :doc:
+        options[:skip_active_record]
       end
 
       def skip_active_storage? # :doc:
-        options[:skip_active_storage] || options[:skip_active_record]
+        options[:skip_active_storage]
+      end
+
+      def skip_action_cable? # :doc:
+        options[:skip_action_cable]
+      end
+
+      def skip_action_mailer? # :doc:
+        options[:skip_action_mailer]
       end
 
       def skip_action_mailbox? # :doc:
-        options[:skip_action_mailbox] || skip_active_storage?
+        options[:skip_action_mailbox]
       end
 
       def skip_action_text? # :doc:
-        options[:skip_action_text] || skip_active_storage?
+        options[:skip_action_text]
       end
 
-      def skip_dev_gems? # :doc:
-        options[:skip_dev_gems]
+      def skip_asset_pipeline? # :doc:
+        options[:skip_asset_pipeline]
+      end
+
+      def skip_sprockets?
+        skip_asset_pipeline? || options[:asset_pipeline] != "sprockets"
+      end
+
+      def skip_propshaft?
+        skip_asset_pipeline? || options[:asset_pipeline] != "propshaft"
+      end
+
+      def skip_rubocop?
+        options[:skip_rubocop]
+      end
+
+      def skip_brakeman?
+        options[:skip_brakeman]
+      end
+
+      def skip_ci?
+        options[:skip_ci]
       end
 
       class GemfileEntry < Struct.new(:name, :version, :comment, :options, :commented_out)
@@ -235,39 +417,43 @@ module Rails
           new(name, version, comment)
         end
 
+        def self.floats(name, comment = nil)
+          new(name, nil, comment)
+        end
+
         def self.path(name, path, comment = nil)
           new(name, nil, comment, path: path)
         end
 
-        def version
-          version = super
-
-          if version.is_a?(Array)
-            version.join('", "')
-          else
-            version
-          end
+        def to_s
+          [
+            (comment.gsub(/^/, "# ").chomp + "\n" if comment),
+            ("# " if commented_out),
+            "gem \"#{name}\"",
+            *Array(version).map { |constraint| ", \"#{constraint}\"" },
+            *options.map { |key, value| ", #{key}: #{value.inspect}" },
+          ].compact.join
         end
+      end
+
+      def gem_ruby_version
+        Gem::Version.new(Gem::VERSION) >= Gem::Version.new("3.3.13") ? Gem.ruby_version : RUBY_VERSION
+      end
+
+      def rails_prerelease?
+        options.dev? || options.edge? || options.main?
       end
 
       def rails_gemfile_entry
         if options.dev?
-          [
-            GemfileEntry.path("rails", Rails::Generators::RAILS_DEV_PATH, "Use local checkout of Rails")
-          ]
+          GemfileEntry.path("rails", Rails::Generators::RAILS_DEV_PATH, "Use local checkout of Rails")
         elsif options.edge?
-          edge_branch = Rails.gem_version.prerelease? ? "main" : [*Rails.gem_version.segments.first(2), "stable"].join("-")
-          [
-            GemfileEntry.github("rails", "rails/rails", edge_branch, "Use specific branch of Rails")
-          ]
+          GemfileEntry.github("rails", "rails/rails", edge_branch, "Use specific branch of Rails")
         elsif options.main?
-          [
-            GemfileEntry.github("rails", "rails/rails", "main", "Use main development branch of Rails")
-          ]
+          GemfileEntry.github("rails", "rails/rails", "main", "Use main development branch of Rails")
         else
-          [GemfileEntry.version("rails",
-                            rails_version_specifier,
-                            %(Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"))]
+          GemfileEntry.version("rails", rails_version_specifier,
+            %(Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"))
         end
       end
 
@@ -285,61 +471,154 @@ module Rails
       end
 
       def jbuilder_gemfile_entry
-        return [] if options[:skip_jbuilder]
-        comment = "Build JSON APIs with ease [https://github.com/rails/jbuilder]"
-        GemfileEntry.new "jbuilder", "~> 2.7", comment, {}, options[:api]
+        return if options[:skip_jbuilder]
+        GemfileEntry.new "jbuilder", nil, "Build JSON APIs with ease [https://github.com/rails/jbuilder]", {}, options[:api]
       end
 
       def javascript_gemfile_entry
-        return [] if options[:skip_javascript]
+        return if options[:skip_javascript]
 
         if options[:javascript] == "importmap"
-          GemfileEntry.version("importmap-rails", ">= 0.3.4", "Use JavaScript with ESM import maps [https://github.com/rails/importmap-rails]")
+          GemfileEntry.floats "importmap-rails", "Use JavaScript with ESM import maps [https://github.com/rails/importmap-rails]"
         else
-          GemfileEntry.version "jsbundling-rails", "~> 0.1.0", "Bundle and transpile JavaScript [https://github.com/rails/jsbundling-rails]"
+          GemfileEntry.floats "jsbundling-rails", "Bundle and transpile JavaScript [https://github.com/rails/jsbundling-rails]"
         end
       end
 
       def hotwire_gemfile_entry
-        return [] if options[:skip_javascript] || options[:skip_hotwire]
+        return if options[:skip_hotwire]
 
         turbo_rails_entry =
-          GemfileEntry.version("turbo-rails", ">= 0.7.11", "Hotwire's SPA-like page accelerator [https://turbo.hotwired.dev]")
+          GemfileEntry.floats "turbo-rails", "Hotwire's SPA-like page accelerator [https://turbo.hotwired.dev]"
 
         stimulus_rails_entry =
-          GemfileEntry.version("stimulus-rails", ">= 0.4.0", "Hotwire's modest JavaScript framework [https://stimulus.hotwired.dev]")
+          GemfileEntry.floats "stimulus-rails", "Hotwire's modest JavaScript framework [https://stimulus.hotwired.dev]"
 
         [ turbo_rails_entry, stimulus_rails_entry ]
       end
 
-      def using_node?
-        options[:javascript] && options[:javascript] != "importmap"
+      def using_js_runtime?
+        (options[:javascript] && !%w[importmap].include?(options[:javascript])) ||
+          (options[:css] && !%w[tailwind sass].include?(options[:css]))
       end
 
-      def css_gemfile_entry
-        return [] unless options[:css]
+      def using_node?
+        using_js_runtime? && !%w[bun].include?(options[:javascript])
+      end
 
-        if !using_node? && options[:css] == "tailwind"
-          GemfileEntry.version("tailwindcss-rails", ">= 0.4.3", "Use Tailwind CSS [https://github.com/rails/tailwindcss-rails]")
-        else
-          GemfileEntry.version("cssbundling-rails", ">= 0.1.0", "Bundle and process CSS [https://github.com/rails/cssbundling-rails]")
+      def using_bun?
+        using_js_runtime? && %w[bun].include?(options[:javascript])
+      end
+
+      def node_version
+        if using_node?
+          ENV.fetch("NODE_VERSION") do
+            `node --version`[/\d+\.\d+\.\d+/]
+          rescue
+            NODE_LTS_VERSION
+          end
         end
       end
 
-      def psych_gemfile_entry
-        return [] unless defined?(Rubinius)
+      def dockerfile_yarn_version
+        using_node? and `yarn --version`[/\d+\.\d+\.\d+/]
+      rescue
+        "latest"
+      end
 
-        comment = "Use Psych as the YAML engine, instead of Syck, so serialized " \
-                  "data can be read safely from different rubies (see http://git.io/uuLVag)"
-        GemfileEntry.new("psych", "~> 2.0", comment, platforms: :rbx)
+      def dockerfile_bun_version
+        using_bun? and `bun --version`[/\d+\.\d+\.\d+/]
+      rescue
+        BUN_VERSION
+      end
+
+      def dockerfile_binfile_fixups
+        # binfiles may have OS specific paths to ruby.  Normalize them.
+        shebangs = Dir["bin/*"].map { |file| IO.read(file).lines.first }.join
+        rubies = shebangs.scan(%r{#!/usr/bin/env (ruby.*)}).flatten.uniq
+
+        binfixups = (rubies - %w(ruby)).map do |ruby|
+          "sed -i 's/#{Regexp.quote(ruby)}$/ruby/' bin/*"
+        end
+
+        # Windows line endings will cause scripts to fail.  If any
+        # or found OR this generation is run on a windows platform
+        # and there are other binfixups required, then convert
+        # line endings.  This avoids adding unnecessary fixups if
+        # none are required, but prepares for the need to do the
+        # fix line endings if other fixups are required.
+        has_cr = Dir["bin/*"].any? { |file| IO.read(file).include? "\r" }
+        if has_cr || (Gem.win_platform? && !binfixups.empty?)
+          binfixups.unshift 'sed -i "s/\r$//g" bin/*'
+        end
+
+        # Windows file systems may not have the concept of executable.
+        # In such cases, fix up during the build.
+        unless Dir["bin/*"].all? { |file| File.executable? file }
+          binfixups.unshift "chmod +x bin/*"
+        end
+
+        binfixups
+      end
+
+      def dockerfile_build_packages
+        # start with the essentials
+        packages = %w(build-essential git pkg-config)
+
+        # add database support
+        packages << build_package_for_database unless skip_active_record?
+
+        # ActiveStorage preview support
+        packages << "libvips" unless skip_active_storage?
+
+        packages << "curl" if using_js_runtime?
+
+        packages << "unzip" if using_bun?
+
+        # node support, including support for building native modules
+        if using_node?
+          packages << "node-gyp" # pkg-config already listed above
+
+          packages << "python-is-python3"
+        end
+
+        packages.compact.sort
+      end
+
+      def dockerfile_deploy_packages
+        # Add curl to work with the default healthcheck strategy in Kamal
+        packages = ["curl"]
+
+        # ActiveRecord databases
+        packages << deploy_package_for_database unless skip_active_record?
+
+        # ActiveStorage preview support
+        packages << "libvips" unless skip_active_storage?
+
+        # jemalloc for memory optimization
+        packages << "libjemalloc2"
+
+        packages.compact.sort
+      end
+
+      def css_gemfile_entry
+        return if options[:api]
+        return unless options[:css]
+
+        if !using_js_runtime? && options[:css] == "tailwind"
+          GemfileEntry.floats "tailwindcss-rails", "Use Tailwind CSS [https://github.com/rails/tailwindcss-rails]"
+        elsif !using_js_runtime? && options[:css] == "sass"
+          GemfileEntry.floats "dartsass-rails", "Use Dart SASS [https://github.com/rails/dartsass-rails]"
+        else
+          GemfileEntry.floats "cssbundling-rails", "Bundle and process CSS [https://github.com/rails/cssbundling-rails]"
+        end
       end
 
       def cable_gemfile_entry
-        return [] if options[:skip_action_cable]
+        return if options[:skip_action_cable]
+
         comment = "Use Redis adapter to run Action Cable in production"
-        gems = []
-        gems << GemfileEntry.new("redis", "~> 4.0", comment, {}, true)
-        gems
+        GemfileEntry.new("redis", ">= 4.0.1", comment, {}, true)
       end
 
       def bundle_command(command, env = {})
@@ -372,6 +651,10 @@ module Rails
         !(options[:skip_bundle] || options[:pretend])
       end
 
+      def bundler_windows_platforms
+        Gem.rubygems_version >= Gem::Version.new("3.3.22") ? "windows" : "mswin mswin64 mingw x64_mingw"
+      end
+
       def depends_on_system_test?
         !(options[:skip_system_test] || options[:skip_test] || options[:api])
       end
@@ -380,21 +663,44 @@ module Rails
         !options[:skip_bootsnap] && !options[:dev] && !defined?(JRUBY_VERSION)
       end
 
+      def target_rails_prerelease(self_command = "new")
+        return unless rails_prerelease? && bundle_install?
+
+        if !File.exist?(File.expand_path("Gemfile", destination_root))
+          create_file("Gemfile", <<~GEMFILE)
+            source "https://rubygems.org"
+            git_source(:github) { |repo| "https://github.com/\#{repo}.git" }
+            #{rails_gemfile_entry}
+          GEMFILE
+
+          run_bundle
+
+          @argv.delete_at(@argv.index(app_path))
+          @argv.unshift(destination_root)
+          require "shellwords"
+          bundle_command("exec rails #{self_command} #{Shellwords.join(@argv)}")
+          exit
+        else
+          remove_file("Gemfile")
+          remove_file("Gemfile.lock")
+        end
+      end
+
       def run_bundle
-        bundle_command("install", "BUNDLE_IGNORE_MESSAGES" => "1") if bundle_install?
+        bundle_command("install --quiet", "BUNDLE_IGNORE_MESSAGES" => "1") if bundle_install?
       end
 
       def run_javascript
         return if options[:skip_javascript] || !bundle_install?
 
         case options[:javascript]
-        when "importmap"                    then rails_command "importmap:install"
-        when "webpack", "esbuild", "rollup" then rails_command "javascript:install:#{options[:javascript]}"
+        when "importmap"                           then rails_command "importmap:install"
+        when "webpack", "bun", "esbuild", "rollup" then rails_command "javascript:install:#{options[:javascript]}"
         end
       end
 
       def run_hotwire
-        return if options[:skip_javascript] || options[:skip_hotwire] || !bundle_install?
+        return if options[:skip_hotwire] || !bundle_install?
 
         rails_command "turbo:install stimulus:install"
       end
@@ -402,10 +708,22 @@ module Rails
       def run_css
         return if !options[:css] || !bundle_install?
 
-        if !using_node? && options[:css] == "tailwind"
+        if !using_js_runtime? && options[:css] == "tailwind"
           rails_command "tailwindcss:install"
+        elsif !using_js_runtime? && options[:css] == "sass"
+          rails_command "dartsass:install"
         else
           rails_command "css:install:#{options[:css]}"
+        end
+      end
+
+      def add_bundler_platforms
+        if bundle_install?
+          # The vast majority of Rails apps will be deployed on `x86_64-linux`.
+          bundle_command("lock --add-platform=x86_64-linux")
+
+          # Users that develop on M1 mac may use docker and would need `aarch64-linux` as well.
+          bundle_command("lock --add-platform=aarch64-linux") if RUBY_PLATFORM.start_with?("arm64")
         end
       end
 
@@ -422,6 +740,35 @@ module Rails
 
       def keep_file(destination)
         create_file("#{destination}/.keep") if keeps?
+      end
+
+      def user_default_branch
+        @user_default_branch ||= `git config init.defaultbranch`
+      end
+
+      def git_init_command
+        return "git init" if user_default_branch.strip.present?
+
+        git_version = `git --version`[/\d+\.\d+\.\d+/]
+
+        if Gem::Version.new(git_version) >= Gem::Version.new("2.28.0")
+          "git init -b main"
+        else
+          "git init && git symbolic-ref HEAD refs/heads/main"
+        end
+      end
+
+      def edge_branch
+        self.class.edge_branch
+      end
+
+      def dockerfile_chown_directories
+        directories = %w(log tmp)
+
+        directories << "storage" unless skip_active_storage? && !sqlite3?
+        directories << "db" unless skip_active_record?
+
+        directories.sort
       end
     end
   end

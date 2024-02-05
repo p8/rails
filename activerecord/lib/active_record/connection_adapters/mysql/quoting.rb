@@ -6,27 +6,35 @@ module ActiveRecord
   module ConnectionAdapters
     module MySQL
       module Quoting # :nodoc:
-        def quote_bound_value(value)
+        QUOTED_COLUMN_NAMES = Concurrent::Map.new # :nodoc:
+        QUOTED_TABLE_NAMES = Concurrent::Map.new # :nodoc:
+
+        def cast_bound_value(value)
           case value
+          when Rational
+            value.to_f.to_s
           when Numeric
-            _quote(value.to_s)
+            value.to_s
           when BigDecimal
-            _quote(value.to_s("F"))
+            value.to_s("F")
           when true
-            "'1'"
+            "1"
           when false
-            "'0'"
+            "0"
+          when ActiveSupport::Duration
+            warn_quote_duration_deprecated
+            value.to_s
           else
-            _quote(value)
+            value
           end
         end
 
         def quote_column_name(name)
-          self.class.quoted_column_names[name] ||= "`#{super.gsub('`', '``')}`"
+          QUOTED_COLUMN_NAMES[name] ||= "`#{super.gsub('`', '``')}`".freeze
         end
 
         def quote_table_name(name)
-          self.class.quoted_table_names[name] ||= super.gsub(".", "`.`").freeze
+          QUOTED_TABLE_NAMES[name] ||= -super.gsub(".", "`.`").freeze
         end
 
         def unquoted_true
@@ -49,6 +57,34 @@ module ActiveRecord
           "x'#{value.hex}'"
         end
 
+        def unquote_identifier(identifier)
+          if identifier && identifier.start_with?("`")
+            identifier[1..-2]
+          else
+            identifier
+          end
+        end
+
+        # Override +type_cast+ we pass to mysql2 Date and Time objects instead
+        # of Strings since MySQL adapters are able to handle those classes more efficiently.
+        def type_cast(value) # :nodoc:
+          case value
+          when ActiveSupport::TimeWithZone
+            # We need to check explicitly for ActiveSupport::TimeWithZone because
+            # we need to transform it to Time objects but we don't want to
+            # transform Time objects to themselves.
+            if default_timezone == :utc
+              value.getutc
+            else
+              value.getlocal
+            end
+          when Date, Time
+            value
+          else
+            super
+          end
+        end
+
         def column_name_matcher
           COLUMN_NAME
         end
@@ -62,7 +98,7 @@ module ActiveRecord
           (
             (?:
               # `table_name`.`column_name` | function(one or no argument)
-              ((?:\w+\.|`\w+`\.)?(?:\w+|`\w+`)) | \w+\((?:|\g<2>)\)
+              ((?:\w+\.|`\w+`\.)?(?:\w+|`\w+`) | \w+\((?:|\g<2>)\))
             )
             (?:(?:\s+AS)?\s+(?:\w+|`\w+`))?
           )
@@ -75,8 +111,9 @@ module ActiveRecord
           (
             (?:
               # `table_name`.`column_name` | function(one or no argument)
-              ((?:\w+\.|`\w+`\.)?(?:\w+|`\w+`)) | \w+\((?:|\g<2>)\)
+              ((?:\w+\.|`\w+`\.)?(?:\w+|`\w+`) | \w+\((?:|\g<2>)\))
             )
+            (?:\s+COLLATE\s+(?:\w+|"\w+"))?
             (?:\s+ASC|\s+DESC)?
           )
           (?:\s*,\s*\g<1>)*
@@ -84,27 +121,6 @@ module ActiveRecord
         /ix
 
         private_constant :COLUMN_NAME, :COLUMN_NAME_WITH_ORDER
-
-        private
-          # Override +_type_cast+ we pass to mysql2 Date and Time objects instead
-          # of Strings since mysql2 is able to handle those classes more efficiently.
-          def _type_cast(value)
-            case value
-            when ActiveSupport::TimeWithZone
-              # We need to check explicitly for ActiveSupport::TimeWithZone because
-              # we need to transform it to Time objects but we don't want to
-              # transform Time objects to themselves.
-              if ActiveRecord.default_timezone == :utc
-                value.getutc
-              else
-                value.getlocal
-              end
-            when Date, Time
-              value
-            else
-              super
-            end
-          end
       end
     end
   end

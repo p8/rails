@@ -156,17 +156,17 @@ module ActiveRecord
             assert_equal "secondary", SecondaryBase.connection_pool.db_config.name
 
             # Switch only primary to shard_one
-            PrimaryBase.connected_to(role: global_role, shard: :shard_one) do
+            PrimaryBase.connected_to(shard: :shard_one) do
               assert_equal "primary_shard_one", PrimaryBase.connection_pool.db_config.name
               assert_equal "secondary", SecondaryBase.connection_pool.db_config.name
 
               # Switch global to shard_one
-              ActiveRecord::Base.connected_to(role: global_role, shard: :shard_one) do
+              ActiveRecord::Base.connected_to(shard: :shard_one) do
                 assert_equal "primary_shard_one", PrimaryBase.connection_pool.db_config.name
                 assert_equal "secondary_shard_one", SecondaryBase.connection_pool.db_config.name
 
                 # Switch only secondary to shard_two
-                SecondaryBase.connected_to(role: global_role, shard: :shard_two) do
+                SecondaryBase.connected_to(shard: :shard_two) do
                   assert_equal "primary_shard_one", PrimaryBase.connection_pool.db_config.name
                   assert_equal "secondary_shard_two", SecondaryBase.connection_pool.db_config.name
                 end
@@ -183,7 +183,7 @@ module ActiveRecord
               end
 
               # Switch everything to default
-              ActiveRecord::Base.connected_to(role: global_role, shard: :default) do
+              ActiveRecord::Base.connected_to(shard: :default) do
                 assert_equal "primary", PrimaryBase.connection_pool.db_config.name
                 assert_equal "secondary", SecondaryBase.connection_pool.db_config.name
               end
@@ -441,13 +441,21 @@ module ActiveRecord
 
           # Switch everything to writing
           ActiveRecord::Base.connected_to(role: :writing) do
+            assert_not_predicate ActiveRecord::Base.connection, :preventing_writes?
             assert_not_predicate ApplicationRecord.connection, :preventing_writes?
 
             ApplicationRecord.connected_to(role: :reading) do
               assert_predicate ApplicationRecord.connection, :preventing_writes?
             end
+
+            # reading is fine bc it's looking up by AppRec but writing is not fine
+            # bc its looking up by ARB in the stack
+            ApplicationRecord.connected_to(role: :writing, prevent_writes: true) do
+              assert_predicate ApplicationRecord.connection, :preventing_writes?
+            end
           end
         ensure
+          ApplicationRecord.remove_connection
           ActiveRecord.application_record_class = nil
           Object.send(:remove_const, :ApplicationRecord)
           ActiveRecord::Base.establish_connection :arunit

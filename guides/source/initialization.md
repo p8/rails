@@ -63,35 +63,6 @@ dependencies of the application. `config/boot.rb` sets
 exists, then `bundler/setup` is required. The require is used by Bundler to
 configure the load path for your Gemfile's dependencies.
 
-A standard Rails application depends on several gems, specifically:
-
-* actioncable
-* actionmailer
-* actionpack
-* actionview
-* activejob
-* activemodel
-* activerecord
-* activestorage
-* activesupport
-* actionmailbox
-* actiontext
-* arel
-* builder
-* bundler
-* erubi
-* i18n
-* mail
-* mime-types
-* rack
-* rack-test
-* rails
-* railties
-* rake
-* sqlite3
-* thor
-* tzinfo
-
 ### `rails/commands.rb`
 
 Once `config/boot.rb` has finished, the next file that is required is
@@ -361,7 +332,7 @@ The `super` method will call `Rack::Server.start` which begins its definition as
 ```ruby
 module Rack
   class Server
-    def start &blk
+    def start(&blk)
       if options[:warn]
         $-w = true
       end
@@ -447,7 +418,6 @@ module Rack
       def build_app_from_string
         Rack::Builder.new_from_string(self.options[:builder])
       end
-
   end
 end
 ```
@@ -476,7 +446,7 @@ module Rack
 
     # ...
 
-    def self.new_from_string(builder_script, file="(rackup)")
+    def self.new_from_string(builder_script, file = "(rackup)")
       eval "Rack::Builder.new {\n" + builder_script + "\n}.to_app",
         TOPLEVEL_BINDING, file, 0
     end
@@ -542,7 +512,6 @@ require "rails"
   action_mailbox/engine
   action_text/engine
   rails/test_unit/railtie
-  sprockets/railtie
 ).each do |railtie|
   begin
     require railtie
@@ -608,7 +577,7 @@ initializers (like building the middleware stack) are run last. The `railtie`
 initializers are the initializers which have been defined on the `Rails::Application`
 itself and are run between the `bootstrap` and `finishers`.
 
-*Note:* Do not confuse Railtie initializers overall with the [load_config_initializers](configuring.html#using-initializer-files)
+NOTE: Do not confuse Railtie initializers overall with the [load_config_initializers](configuring.html#using-initializer-files)
 initializer instance or its associated config initializers in `config/initializers`.
 
 After this is done we go back to `Rack::Server`.
@@ -640,7 +609,6 @@ module Rack
       def build_app_from_string
         Rack::Builder.new_from_string(self.options[:builder])
       end
-
   end
 end
 ```
@@ -686,7 +654,7 @@ module Rack
 
         events = options.delete(:Silent) ? ::Puma::Events.strings : ::Puma::Events.stdio
 
-        launcher = ::Puma::Launcher.new(conf, :events => events)
+        launcher = ::Puma::Launcher.new(conf, events: events)
 
         yield launcher if block_given?
         begin

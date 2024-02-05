@@ -1,171 +1,181 @@
-## Rails 7.0.0.alpha2 (September 15, 2021) ##
+*   Setup jemalloc in the default Dockerfile for memory optimization.
 
-*   Fix activestorage dependency in the npm package.
+    *Matt Almeida*, *Jean Boussier*
 
-    *Rafael Mendonça França*
+*   Commented out lines in .railsrc file should not be treated as arguments when using
+    rails new generator command. Update ARGVScrubber to ignore text after # symbols.
 
-## Rails 7.0.0.alpha1 (September 15, 2021) ##
+    *Willian Tenfen*
 
-*   New and upgraded Rails apps no longer generate `config/initializers/application_controller_renderer.rb`
-    or `config/initializers/cookies_serializer.rb`
+*   Skip CSS when generating APIs.
 
-    The default value for `cookies_serializer` (`:json`) has been moved to `config.load_defaults("7.0")`.
-    The new framework defaults file can be used to upgrade the serializer.
+    *Ruy Rocha*
+
+*   Rails console now indicates application name and the current Rails environment:
+
+    ```txt
+    my-app(dev)> # for RAILS_ENV=development
+    my-app(test)> # for RAILS_ENV=test
+    my-app(prod)> # for RAILS_ENV=production
+    my-app(my_env)> # for RAILS_ENV=my_env
+    ```
+
+    The application name is derived from the application's module name from `config/application.rb`.
+    For example, `MyApp` will displayed as `my-app` in the prompt.
+
+    Additionally, the environment name will be colorized when the environment is
+    `development` (blue), `test` (blue), or `production` (red), if your
+    terminal supports it.
+
+    *Stan Lo*
+
+*   Ensure `autoload_paths`, `autoload_once_paths`, `eager_load_paths`, and
+    `load_paths` only have directories when initialized from engine defaults.
+    Previously, files under the `app` directory could end up there too.
+
+    *Takumasa Ochi*
+
+*   Prevent unnecessary application reloads in development.
+
+    Previously, some files outside autoload paths triggered unnecessary reloads.
+    With this fix, application reloads according to `Rails.autoloaders.main.dirs`,
+    thereby preventing unnecessary reloads.
+
+    *Takumasa Ochi*
+
+*   Use `oven-sh/setup-bun` in GitHub CI when generating an app with Bun.
+
+    *TangRufus*
+
+*   Disable `pidfile` generation in the `production` environment.
+
+    *Hans Schnedlitz*
+
+*   Set `config.action_view.annotate_rendered_view_with_filenames` to `true` in
+    the `development` environment.
+
+    *Adrian Marin*
+
+*   Support the `BACKTRACE` environment variable to turn off backtrace cleaning.
+
+    Useful for debugging framework code:
+
+    ```sh
+    BACKTRACE=1 bin/rails server
+    ```
 
     *Alex Ghiculescu*
 
-*   New applications get a dependency on the new `debug` gem, replacing `byebug`.
+*   Raise `ArgumentError` when reading `config.x.something` with arguments:
 
-    *Xavier Noria*
+    ```ruby
+    config.x.this_works.this_raises true # raises ArgumentError
+    ```
 
-*   Add SSL support for postgresql in `bin/rails dbconsole`.
+    *Sean Doyle*
 
-    Fixes #43114.
+*   Add default PWA files for manifest and service-worker that are served from `app/views/pwa` and can be dynamically rendered through ERB. Mount these files explicitly at the root with default routes in the generated routes file.
 
-    *Michael Bayucot*
+    *DHH*
 
-*   Add support for comments above gem declaration in Rails application templates, e.g. `gem("nokogiri", comment: "For XML")`.
+*   Updated system tests to now use headless Chrome by default for the new applications.
 
-    *Linas Juškevičius*
+    *DHH*
 
-*   The setter `config.autoloader=` has been deleted. `zeitwerk` is the only
-    available autoloading mode.
+*   Add GitHub CI files for Dependabot, Brakeman, RuboCop, and running tests by default. Can be skipped with `--skip-ci`.
 
-    *Xavier Noria*
+    *DHH*
 
-*   `config.autoload_once_paths` can be configured in the body of the
-    application class defined in `config/application.rb` or in the configuration
-    for environments in `config/environments/*`.
+*   Add Brakeman by default for static analysis of security vulnerabilities. Allow skipping with `--skip-brakeman option`.
 
-    Similarly, engines can configure that collection in the class body of the
-    engine class or in the configuration for environments.
+    *vipulnsward*
 
-    After that, the collection is frozen, and you can autoload from those paths.
-    They are managed by the `Rails.autoloaders.once` autoloader, which does not
-    reload, only autoloads/eager loads.
+*   Add RuboCop with rules from `rubocop-rails-omakase` by default. Skip with `--skip-rubocop`.
 
-    *Xavier Noria*
+    *DHH* and *zzak*
 
-*   During initialization, you cannot autoload reloadable classes or modules
-    like application models, unless they are wrapped in a `to_prepare` block.
-    For example, from `config/initializers/*`, or in application, engines, or
-    railties initializers.
+*   Use `bin/rails runner --skip-executor` to not wrap the runner script with an
+    Executor.
 
-    Please check the [autoloading
-    guide](https://guides.rubyonrails.org/v7.0/autoloading_and_reloading_constants.html#autoloading-when-the-application-boots)
-    for details.
+    *Ben Sheldon*
 
-    *Xavier Noria*
+*   Fix isolated engines to take `ActiveRecord::Base.table_name_prefix` into consideration.
+    This will allow for engine defined models, such as inside Active Storage, to respect
+    Active Record table name prefix configuration.
 
-*   While they are allowed to have elements in common, it is no longer required
-    that `config.autoload_once_paths` is a subset of `config.autoload_paths`.
-    The former are managed by the `once` autoloader. The `main` autoloader
-    manages the latter minus the former.
+    *Chedli Bourguiba*
 
-    *Xavier Noria*
-
-*   Show Rake task description if command is run with `-h`.
-
-    Adding `-h` (or `--help`) to a Rails command that's a Rake task now outputs
-    the task description instead of the general Rake help.
-
-    *Petrik de Heus*
-
-*   Add missing `plugin new` command to help.
-
-    *Petrik de Heus
-
-*   Fix `config_for` error when there's only a shared root array.
-
-    *Loïc Delmaire*
-
-*   Raise an error in generators if an index type is invalid.
-
-    *Petrik de Heus*
-
-*   `package.json` now uses a strict version constraint for Rails JavaScript packages on new Rails apps.
-
-    *Zachary Scott*, *Alex Ghiculescu*
-
-*   Modified scaffold generator template so that running
-    `rails g scaffold Author` no longer generates tests called "creating
-    a Author", "updating a Author", and "destroying a Author".
-
-    Fixes #40744.
-
-    *Michael Duchemin*
-
-*   Raise an error in generators if a field type is invalid.
-
-    *Petrik de Heus*
-
-*   `bin/rails tmp:clear` deletes also files and directories in `tmp/storage`.
-
-    *George Claghorn*
-
-*   Fix compatibility with `psych >= 4`.
-
-    Starting in Psych 4.0.0 `YAML.load` behaves like `YAML.safe_load`. To preserve compatibility
-    `Rails.application.config_for` now uses `YAML.unsafe_load` if available.
-
-    *Jean Boussier*
-
-*   Allow loading nested locales in engines.
-
-    *Gannon McGibbon*
-
-*   Ensure `Rails.application.config_for` always cast hashes to `ActiveSupport::OrderedOptions`.
-
-    *Jean Boussier*
-
-*   Remove `Rack::Runtime` from the default middleware stack and deprecate
-    referencing it in middleware operations without adding it back.
+*   Fix running `db:system:change` when the app has no Dockerfile.
 
     *Hartley McGuire*
 
-*   Allow adding additional authorized hosts in development via `ENV['RAILS_DEVELOPMENT_HOSTS']`.
+*   In Action Mailer previews, list inline attachments separately from normal
+    attachments. For example, attachments that were previously listed like
 
-    *Josh Abernathy*, *Debbie Milburn*
+      > Attachments: logo.png file1.pdf file2.pdf
 
-*   Add app concern and test keepfiles to generated engine plugins.
+    will now be listed like
 
-    *Gannon McGibbon*
+      > Attachments: file1.pdf file2.pdf (Inline: logo.png)
 
-*   Stop generating a license for in-app plugins.
+    *Christian Schmidt* and *Jonathan Hefner*
 
-    *Gannon McGibbon*
+*   In mailer preview, only show SMTP-To if it differs from the union of To, Cc and Bcc.
 
-*   `rails app:update` no longer prompts you to overwrite files that are generally modified in the
-    course of developing a Rails app. See [#41083](https://github.com/rails/rails/pull/41083) for
-    the full list of changes.
+    *Christian Schmidt*
 
-    *Alex Ghiculescu*
+*   Enable YJIT by default on new applications running Ruby 3.3+.
 
-*   Change default branch for new Rails projects and plugins to `main`.
+    Adds a `config/initializers/enable_yjit.rb` initializer that enables YJIT
+    when running on Ruby 3.3+.
 
-    *Prateek Choudhary*
+    *Jean Boussier*
 
-*   The new method `Rails.benchmark` gives you a quick way to measure and log the execution time taken by a block:
+*   In Action Mailer previews, show date from message `Date` header if present.
 
-        def test_expensive_stuff
-          Rails.benchmark("test_expensive_stuff") { ... }
-        end
+    *Sampat Badhe*
 
-    This functionality was available in some contexts only before.
+*   Exit with non-zero status when the migration generator fails.
 
-    *Simon Perepelitsa*
+    *Katsuhiko YOSHIDA*
 
-*   Applications generated with `--skip-sprockets` no longer get `app/assets/config/manifest.js` and `app/assets/stylesheets/application.css`.
+*   Use numeric UID and GID in Dockerfile template
 
-    *Cindy Gao*
+    The Dockerfile generated by `rails new` sets the default user and group
+    by name instead of UID:GID. This can cause the following error in Kubernetes:
 
-*   Add support for stylesheets and ERB views to `rails stats`.
+    ```
+    container has runAsNonRoot and image has non-numeric user (rails), cannot verify user is non-root
+    ```
 
-    *Joel Hawksley*
+    This change sets default user and group by their numeric values.
 
-*   Allow appended root routes to take precedence over internal welcome controller.
+    *Ivan Fedotov*
 
-    *Gannon McGibbon*
+*   Disallow invalid values for rails new options.
 
+    The `--database`, `--asset-pipeline`, `--css`, and `--javascript` options
+    for `rails new` take different arguments. This change validates them.
 
-Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/railties/CHANGELOG.md) for previous changes.
+    *Tony Drake*, *Akhil G Krishnan*, *Petrik de Heus*
+
+*   Conditionally print `$stdout` when invoking `run_generator`.
+
+    In an effort to improve the developer experience when debugging
+    generator tests, we add the ability to conditionally print `$stdout`
+    instead of capturing it.
+
+    This allows for calls to `binding.irb` and `puts` work as expected.
+
+    ```sh
+    RAILS_LOG_TO_STDOUT=true ./bin/test test/generators/actions_test.rb
+    ```
+
+    *Steve Polito*
+
+*   Remove the option `config.public_file_server.enabled` from the generators
+    for all environments, as the value is the same in all environments.
+
+    *Adrian Hirt*
+
+Please check [7-1-stable](https://github.com/rails/rails/blob/7-1-stable/railties/CHANGELOG.md) for previous changes.

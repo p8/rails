@@ -56,6 +56,8 @@ module ActionCable
       end
     end
 
+    # = Action Cable \Connection \TestCase
+    #
     # Unit test Action Cable connections.
     #
     # Useful to check whether a connection's +identified_by+ gets assigned properly
@@ -86,7 +88,7 @@ module ActionCable
     #   end
     #
     # +connect+ accepts additional information about the HTTP request with the
-    # +params+, +headers+, +session+ and Rack +env+ options.
+    # +params+, +headers+, +session+, and Rack +env+ options.
     #
     #   def test_connect_with_headers_and_query_string
     #     connect params: { user_id: 1 }, headers: { "X-API-TOKEN" => "secret-my" }
@@ -116,7 +118,7 @@ module ActionCable
     #     assert_equal "1", connection.user_id
     #   end
     #
-    # == Connection is automatically inferred
+    # == \Connection is automatically inferred
     #
     # ActionCable::Connection::TestCase will automatically infer the connection under test
     # from the test class name. If the channel cannot be inferred from the test

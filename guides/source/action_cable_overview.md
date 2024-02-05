@@ -24,7 +24,7 @@ Rails application. It allows for real-time features to be written in Ruby in the
 same style and form as the rest of your Rails application, while still being
 performant and scalable. It's a full-stack offering that provides both a
 client-side JavaScript framework and a server-side Ruby framework. You have
-access to your full domain model written with Active Record or your ORM of
+access to your entire domain model written with Active Record or your ORM of
 choice.
 
 Terminology
@@ -42,16 +42,16 @@ WebSockets open to your application if they use multiple browser tabs or devices
 
 ### Consumers
 
-The client of a WebSocket connection is called the *consumer*. In Action Cable
+The client of a WebSocket connection is called the *consumer*. In Action Cable,
 the consumer is created by the client-side JavaScript framework.
 
 ### Channels
 
-Each consumer can in turn subscribe to multiple *channels*. Each channel
+Each consumer can, in turn, subscribe to multiple *channels*. Each channel
 encapsulates a logical unit of work, similar to what a controller does in
-a regular MVC setup. For example, you could have a `ChatChannel` and
+a typical MVC setup. For example, you could have a `ChatChannel` and
 an `AppearancesChannel`, and a consumer could be subscribed to either
-or to both of these channels. At the very least, a consumer should be subscribed
+or both of these channels. At the very least, a consumer should be subscribed
 to one channel.
 
 ### Subscribers
@@ -155,20 +155,34 @@ module ApplicationCable
     rescue_from StandardError, with: :report_error
 
     private
-
-    def report_error(e)
-      SomeExternalBugtrackingService.notify(e)
-    end
+      def report_error(e)
+        SomeExternalBugtrackingService.notify(e)
+      end
   end
 end
 ```
 
 [`rescue_from`]: https://api.rubyonrails.org/classes/ActiveSupport/Rescuable/ClassMethods.html#method-i-rescue_from
 
+#### Connection Callbacks
+
+[`ActionCable::Connection::Callbacks`][] provides callback hooks that are
+invoked when sending commands to the client, such as when subscribing,
+unsubscribing, or performing an action:
+
+* [`before_command`][]
+* [`after_command`][]
+* [`around_command`][]
+
+[`ActionCable::Connection::Callbacks`]: https://api.rubyonrails.org/classes/ActionCable/Connection/Callbacks.html
+[`after_command`]: https://api.rubyonrails.org/classes/ActionCable/Connection/Callbacks/ClassMethods.html#method-i-after_command
+[`around_command`]: https://api.rubyonrails.org/classes/ActionCable/Connection/Callbacks/ClassMethods.html#method-i-around_command
+[`before_command`]: https://api.rubyonrails.org/classes/ActionCable/Connection/Callbacks/ClassMethods.html#method-i-before_command
+
 ### Channels
 
 A *channel* encapsulates a logical unit of work, similar to what a controller does in a
-regular MVC setup. By default, Rails creates a parent `ApplicationCable::Channel` class
+typical MVC setup. By default, Rails creates a parent `ApplicationCable::Channel` class
 (which extends [`ActionCable::Channel::Base`][]) for encapsulating shared logic between your channels.
 
 #### Parent Channel Setup
@@ -227,12 +241,29 @@ class ChatChannel < ApplicationCable::Channel
   rescue_from 'MyError', with: :deliver_error_message
 
   private
-
-  def deliver_error_message(e)
-    broadcast_to(...)
-  end
+    def deliver_error_message(e)
+      # broadcast_to(...)
+    end
 end
 ```
+
+#### Channel Callbacks
+
+[`ActionCable::Channel::Callbacks`][] provides callback hooks that are invoked
+during the life cycle of a channel:
+
+* [`before_subscribe`][]
+* [`after_subscribe`][] (aliased as [`on_subscribe`][])
+* [`before_unsubscribe`][]
+* [`after_unsubscribe`][] (aliased as [`on_unsubscribe`][])
+
+[`ActionCable::Channel::Callbacks`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks.html
+[`after_subscribe`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks/ClassMethods.html#method-i-after_subscribe
+[`after_unsubscribe`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks/ClassMethods.html#method-i-after_unsubscribe
+[`before_subscribe`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks/ClassMethods.html#method-i-before_subscribe
+[`before_unsubscribe`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks/ClassMethods.html#method-i-before_unsubscribe
+[`on_subscribe`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks/ClassMethods.html#method-i-on_subscribe
+[`on_unsubscribe`]: https://api.rubyonrails.org/classes/ActionCable/Channel/Callbacks/ClassMethods.html#method-i-on_unsubscribe
 
 ## Client-Side Components
 
@@ -263,6 +294,8 @@ WebSocket is opened.
 
 ```js
 // Specify a different URL to connect to
+createConsumer('wss://example.com/cable')
+// Or when using websockets over HTTP
 createConsumer('https://ws.example.com/cable')
 
 // Use a function to dynamically generate the URL
@@ -270,7 +303,7 @@ createConsumer(getWebSocketURL)
 
 function getWebSocketURL() {
   const token = localStorage.get('auth-token')
-  return `https://ws.example.com/cable?token=${token}`
+  return `wss://example.com/cable?token=${token}`
 }
 ```
 
@@ -332,11 +365,11 @@ ActionCable.server.broadcast("chat_Best Room", { body: "This Room is Best Room."
 If you have a stream that is related to a model, then the broadcasting name
 can be generated from the channel and model. For example, the following code
 uses [`stream_for`][] to subscribe to a broadcasting like
-`comments:Z2lkOi8vVGVzdEFwcC9Qb3N0LzE`, where `Z2lkOi8vVGVzdEFwcC9Qb3N0LzE` is
+`posts:Z2lkOi8vVGVzdEFwcC9Qb3N0LzE`, where `Z2lkOi8vVGVzdEFwcC9Qb3N0LzE` is
 the GlobalID of the Post model.
 
 ```ruby
-class CommentsChannel < ApplicationCable::Channel
+class PostsChannel < ApplicationCable::Channel
   def subscribed
     post = Post.find(params[:id])
     stream_for post
@@ -347,7 +380,7 @@ end
 You can then broadcast to this channel by calling [`broadcast_to`][]:
 
 ```ruby
-CommentsChannel.broadcast_to(@post, @comment)
+PostsChannel.broadcast_to(@post, @comment)
 ```
 
 [`broadcast`]: https://api.rubyonrails.org/classes/ActionCable/Server/Broadcasting.html#method-i-broadcast
@@ -478,7 +511,7 @@ const chatChannel = consumer.subscriptions.create({ channel: "ChatChannel", room
   received(data) {
     // data => { sent_by: "Paul", body: "This is a cool chat app." }
   }
-}
+})
 
 chatChannel.send({ sent_by: "Paul", body: "This is a cool chat app." })
 ```
@@ -573,19 +606,19 @@ consumer.subscriptions.create("AppearanceChannel", {
   install() {
     window.addEventListener("focus", this.update)
     window.addEventListener("blur", this.update)
-    document.addEventListener("turbolinks:load", this.update)
+    document.addEventListener("turbo:load", this.update)
     document.addEventListener("visibilitychange", this.update)
   },
 
   uninstall() {
     window.removeEventListener("focus", this.update)
     window.removeEventListener("blur", this.update)
-    document.removeEventListener("turbolinks:load", this.update)
+    document.removeEventListener("turbo:load", this.update)
     document.removeEventListener("visibilitychange", this.update)
   },
 
   get documentIsActive() {
-    return document.visibilityState == "visible" && document.hasFocus()
+    return document.visibilityState === "visible" && document.hasFocus()
   },
 
   get appearingOn() {
@@ -597,40 +630,39 @@ consumer.subscriptions.create("AppearanceChannel", {
 
 #### Client-Server Interaction
 
-1. **Client** connects to the **Server** via `App.cable =
-ActionCable.createConsumer("ws://cable.example.com")`. (`cable.js`). The
-**Server** identifies this connection by `current_user`.
+1. **Client** connects to the **Server** via `createConsumer()`. (`consumer.js`). The
+  **Server** identifies this connection by `current_user`.
 
 2. **Client** subscribes to the appearance channel via
-`consumer.subscriptions.create({ channel: "AppearanceChannel" })`. (`appearance_channel.js`)
+  `consumer.subscriptions.create({ channel: "AppearanceChannel" })`. (`appearance_channel.js`)
 
 3. **Server** recognizes a new subscription has been initiated for the
-appearance channel and runs its `subscribed` callback, calling the `appear`
-method on `current_user`. (`appearance_channel.rb`)
+  appearance channel and runs its `subscribed` callback, calling the `appear`
+  method on `current_user`. (`appearance_channel.rb`)
 
 4. **Client** recognizes that a subscription has been established and calls
-`connected` (`appearance_channel.js`) which in turn calls `install` and `appear`.
-`appear` calls `AppearanceChannel#appear(data)` on the server, and supplies a
-data hash of `{ appearing_on: this.appearingOn }`. This is
-possible because the server-side channel instance automatically exposes all
-public methods declared on the class (minus the callbacks), so that these can be
-reached as remote procedure calls via a subscription's `perform` method.
+  `connected` (`appearance_channel.js`), which in turn calls `install` and `appear`.
+  `appear` calls `AppearanceChannel#appear(data)` on the server, and supplies a
+  data hash of `{ appearing_on: this.appearingOn }`. This is
+  possible because the server-side channel instance automatically exposes all
+  public methods declared on the class (minus the callbacks), so that these can be
+  reached as remote procedure calls via a subscription's `perform` method.
 
 5. **Server** receives the request for the `appear` action on the appearance
-channel for the connection identified by `current_user`
-(`appearance_channel.rb`). **Server** retrieves the data with the
-`:appearing_on` key from the data hash and sets it as the value for the `:on`
-key being passed to `current_user.appear`.
+  channel for the connection identified by `current_user`
+  (`appearance_channel.rb`). **Server** retrieves the data with the
+  `:appearing_on` key from the data hash and sets it as the value for the `:on`
+  key being passed to `current_user.appear`.
 
 ### Example 2: Receiving New Web Notifications
 
 The appearance example was all about exposing server functionality to
 client-side invocation over the WebSocket connection. But the great thing
-about WebSockets is that it's a two-way street. So now let's show an example
+about WebSockets is that it's a two-way street. So, now, let's show an example
 where the server invokes an action on the client.
 
 This is a web notification channel that allows you to trigger client-side
-web notifications when you broadcast to the right streams:
+web notifications when you broadcast to the relevant streams:
 
 Create the server-side web notifications channel:
 
@@ -653,7 +685,7 @@ import consumer from "./consumer"
 
 consumer.subscriptions.create("WebNotificationsChannel", {
   received(data) {
-    new Notification(data["title"], body: data["body"])
+    new Notification(data["title"], { body: data["body"] })
   }
 })
 ```
@@ -677,7 +709,7 @@ user. For a user with an ID of 1, the broadcasting name would be
 
 The channel has been instructed to stream everything that arrives at
 `web_notifications:1` directly to the client by invoking the `received`
-callback. The data passed as argument is the hash sent as the second parameter
+callback. The data passed as an argument is the hash sent as the second parameter
 to the server-side broadcast call, JSON encoded for the trip across the wire
 and unpacked for the data argument arriving as `received`.
 
@@ -721,11 +753,11 @@ The async adapter is intended for development/testing and should not be used in 
 
 The Redis adapter requires users to provide a URL pointing to the Redis server.
 Additionally, a `channel_prefix` may be provided to avoid channel name collisions
-when using the same Redis server for multiple applications. See the [Redis PubSub documentation](https://redis.io/topics/pubsub#database-amp-scoping) for more details.
+when using the same Redis server for multiple applications. See the [Redis Pub/Sub documentation](https://redis.io/docs/manual/pubsub/#database--scoping) for more details.
 
-The Redis adapter also supports SSL/TLS connections. The required SSL/TLS parameters can be passed in `ssl_params` key in the configuration yaml file.
+The Redis adapter also supports SSL/TLS connections. The required SSL/TLS parameters can be passed in `ssl_params` key in the configuration YAML file.
 
-```
+```yaml
 production:
   adapter: redis
   url: rediss://10.10.3.153:tls_port
@@ -770,9 +802,10 @@ in the development environment.
 ### Consumer Configuration
 
 To configure the URL, add a call to [`action_cable_meta_tag`][] in your HTML layout
-HEAD. This uses a URL or path typically set via `config.action_cable.url` in the
+HEAD. This uses a URL or path typically set via [`config.action_cable.url`][] in the
 environment configuration files.
 
+[`config.action_cable.url`]: configuring.html#config-action-cable-url
 [`action_cable_meta_tag`]: https://api.rubyonrails.org/classes/ActionCable/Helpers/ActionCableHelper.html#method-i-action_cable_meta_tag
 
 ### Worker Pool Configuration
@@ -790,11 +823,11 @@ connections as you have workers. The default worker pool size is set to 4, so
 that means you have to make at least 4 database connections available.
 You can change that in `config/database.yml` through the `pool` attribute.
 
-### Client-side logging
+### Client-side Logging
 
 Client-side logging is disabled by default. You can enable this by setting the `ActionCable.logger.enabled` to true.
 
-```ruby
+```js
 import * as ActionCable from '@rails/actioncable'
 
 ActionCable.logger.enabled = true
@@ -819,11 +852,15 @@ For a full list of all configuration options, see the
 
 ## Running Standalone Cable Servers
 
+Action Cable can either run as part of your Rails application, or as
+a standalone server. In development, running as part of your Rails app
+is generally fine, but in production you should run it as a standalone.
+
 ### In App
 
 Action Cable can run alongside your Rails application. For example, to
 listen for WebSocket requests on `/websocket`, specify that path to
-`config.action_cable.mount_path`:
+[`config.action_cable.mount_path`][]:
 
 ```ruby
 # config/application.rb
@@ -833,12 +870,15 @@ end
 ```
 
 You can use `ActionCable.createConsumer()` to connect to the cable
-server if `action_cable_meta_tag` is invoked in the layout. Otherwise, A path is
+server if [`action_cable_meta_tag`][] is invoked in the layout. Otherwise, a path is
 specified as first argument to `createConsumer` (e.g. `ActionCable.createConsumer("/websocket")`).
 
-For every instance of your server, you create and for every worker your server
+For every instance of your server you create, and for every worker your server
 spawns, you will also have a new instance of Action Cable, but the Redis or
 PostgreSQL adapter keeps messages synced across connections.
+
+[`config.action_cable.mount_path`]: configuring.html#config-action-cable-mount-path
+[`action_cable_meta_tag`]: https://api.rubyonrails.org/classes/ActionCable/Helpers/ActionCableHelper.html#method-i-action_cable_meta_tag
 
 ### Standalone
 
@@ -854,14 +894,24 @@ Rails.application.eager_load!
 run ActionCable.server
 ```
 
-Then you start the server using a binstub in `bin/cable` ala:
+Then to start the server:
 
-```
-#!/bin/bash
-bundle exec puma -p 28080 cable/config.ru
+```bash
+$ bundle exec puma -p 28080 cable/config.ru
 ```
 
-The above will start a cable server on port 28080.
+This starts a cable server on port 28080. To tell Rails to use this
+server, update your config:
+
+```ruby
+# config/environments/development.rb
+Rails.application.configure do
+  config.action_cable.mount_path = nil
+  config.action_cable.url = "ws://localhost:28080" # use wss:// in production
+end
+```
+
+Finally, ensure you have [configured the consumer correctly](#consumer-configuration).
 
 ### Notes
 
@@ -883,11 +933,11 @@ The Ruby side of things is built on top of [websocket-driver](https://github.com
 
 Action Cable is powered by a combination of WebSockets and threads. Both the
 framework plumbing and user-specified channel work are handled internally by
-utilizing Ruby's native thread support. This means you can use all your regular
+utilizing Ruby's native thread support. This means you can use all your existing
 Rails models with no problem, as long as you haven't committed any thread-safety sins.
 
 The Action Cable server implements the Rack socket hijacking API,
-thereby allowing the use of a multithreaded pattern for managing connections
+thereby allowing the use of a multi-threaded pattern for managing connections
 internally, irrespective of whether the application server is multi-threaded or not.
 
 Accordingly, Action Cable works with popular servers like Unicorn, Puma, and

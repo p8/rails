@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module AbstractController
-  # = Abstract Controller Callbacks
+  # = Abstract Controller \Callbacks
   #
   # Abstract Controller provides hooks during the life cycle of a controller action.
   # Callbacks allow you to trigger logic during this cycle. Available callbacks are:
@@ -18,9 +18,6 @@ module AbstractController
   # * <tt>skip_after_action</tt>
   # * <tt>skip_around_action</tt>
   # * <tt>skip_before_action</tt>
-  #
-  # NOTE: Calling the same callback multiple times will overwrite previous callback definitions.
-  #
   module Callbacks
     extend ActiveSupport::Concern
 
@@ -33,14 +30,36 @@ module AbstractController
       define_callbacks :process_action,
                        terminator: ->(controller, result_lambda) { result_lambda.call; controller.performed? },
                        skip_after_callbacks_if_terminated: true
+      mattr_accessor :raise_on_missing_callback_actions, default: false
     end
 
-    class ActionFilter
-      def initialize(actions)
+    class ActionFilter # :nodoc:
+      def initialize(filters, conditional_key, actions)
+        @filters = filters.to_a
+        @conditional_key = conditional_key
         @actions = Array(actions).map(&:to_s).to_set
       end
 
       def match?(controller)
+        if controller.raise_on_missing_callback_actions
+          missing_action = @actions.find { |action| !controller.available_action?(action) }
+          if missing_action
+            filter_names = @filters.length == 1 ? @filters.first.inspect : @filters.inspect
+
+            message = <<~MSG
+              The #{missing_action} action could not be found for the #{filter_names}
+              callback on #{controller.class.name}, but it is listed in the controller's
+              #{@conditional_key.inspect} option.
+
+              Raising for missing callback actions is a new default in Rails 7.1, if you'd
+              like to turn this off you can delete the option from the environment configurations
+              or set `config.action_controller.raise_on_missing_callback_actions` to `false`.
+            MSG
+
+            raise ActionNotFound.new(message, controller, missing_action)
+          end
+        end
+
         @actions.include?(controller.action_name)
       end
 
@@ -75,9 +94,10 @@ module AbstractController
       end
 
       def _normalize_callback_option(options, from, to) # :nodoc:
-        if from = options.delete(from)
-          from = ActionFilter.new(from)
-          options[to] = Array(options[to]).unshift(from)
+        if from_value = options.delete(from)
+          filters = options[:filters]
+          from_value = ActionFilter.new(filters, from, from_value)
+          options[to] = Array(options[to]).unshift(from_value)
         end
       end
 
@@ -95,8 +115,10 @@ module AbstractController
       # * <tt>options</tt>  - A hash of options to be used when adding the callback.
       def _insert_callbacks(callbacks, block = nil)
         options = callbacks.extract_options!
-        _normalize_callback_options(options)
         callbacks.push(block) if block
+        options[:filters] = callbacks
+        _normalize_callback_options(options)
+        options.delete(:filters)
         callbacks.each do |callback|
           yield callback, options
         end
@@ -229,7 +251,7 @@ module AbstractController
     private
       # Override <tt>AbstractController::Base#process_action</tt> to run the
       # <tt>process_action</tt> callbacks around the normal behavior.
-      def process_action(*)
+      def process_action(...)
         run_callbacks(:process_action) do
           super
         end

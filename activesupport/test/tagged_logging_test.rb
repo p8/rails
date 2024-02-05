@@ -40,6 +40,11 @@ class TaggedLoggingTest < ActiveSupport::TestCase
     assert_equal "[BCX] [Jason] [New] Funky time\n", @output.string
   end
 
+  test "tagged with an array" do
+    @logger.tagged(%w(BCX Jason New)) { @logger.info "Funky time" }
+    assert_equal "[BCX] [Jason] [New] Funky time\n", @output.string
+  end
+
   test "tagged are flattened" do
     @logger.tagged("BCX", %w(Jason New)) { @logger.info "Funky time" }
     assert_equal "[BCX] [Jason] [New] Funky time\n", @output.string
@@ -217,13 +222,32 @@ class TaggedLoggingWithoutBlockTest < ActiveSupport::TestCase
 
   test "keeps broadcasting functionality" do
     broadcast_output = StringIO.new
-    broadcast_logger = ActiveSupport::TaggedLogging.new(Logger.new(broadcast_output))
-    @logger.extend(ActiveSupport::Logger.broadcast(broadcast_logger))
+    broadcast_logger = ActiveSupport::BroadcastLogger.new(Logger.new(broadcast_output), @logger)
+    logger_with_tags = ActiveSupport::TaggedLogging.new(broadcast_logger)
 
-    tagged_logger = @logger.tagged("OMG")
+    tagged_logger = logger_with_tags.tagged("OMG")
     tagged_logger.info "Broadcasting..."
 
     assert_equal "[OMG] Broadcasting...\n", @output.string
     assert_equal "[OMG] Broadcasting...\n", broadcast_output.string
+  end
+
+  test "keeps formatter singleton class methods" do
+    plain_output = StringIO.new
+    plain_logger = Logger.new(plain_output)
+    plain_logger.formatter = Logger::Formatter.new
+    plain_logger.formatter.extend(Module.new {
+      def crozz_method
+      end
+    })
+
+    tagged_logger = ActiveSupport::TaggedLogging.new(plain_logger)
+    assert_respond_to tagged_logger.formatter, :tagged
+    assert_respond_to tagged_logger.formatter, :crozz_method
+  end
+
+  test "accepts non-String objects" do
+    @logger.tagged("tag") { @logger.info [1, 2, 3] }
+    assert_equal "[tag] [1, 2, 3]\n", @output.string
   end
 end

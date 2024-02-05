@@ -2,7 +2,7 @@
 
 module ActiveRecord
   module Encryption
-    # Configuration API for +ActiveRecord::Encryption+
+    # Configuration API for ActiveRecord::Encryption
     module Configurable
       extend ActiveSupport::Concern
 
@@ -17,24 +17,29 @@ module ActiveRecord
           delegate name, to: :context
         end
 
-        def configure(primary_key:, deterministic_key:, key_derivation_salt:, **properties) # :nodoc:
+        def configure(primary_key: nil, deterministic_key: nil, key_derivation_salt: nil, **properties) # :nodoc:
           config.primary_key = primary_key
           config.deterministic_key = deterministic_key
           config.key_derivation_salt = key_derivation_salt
 
-          context.key_provider = ActiveRecord::Encryption::DerivedSecretKeyProvider.new(primary_key)
+          # Set the default for this property here instead of in +Config#set_defaults+ as this needs
+          # to happen *after* the keys have been set.
+          properties[:support_sha1_for_non_deterministic_encryption] = true if properties[:support_sha1_for_non_deterministic_encryption].nil?
 
           properties.each do |name, value|
-            [:context, :config].each do |configurable_object_name|
-              configurable_object = ActiveRecord::Encryption.send(configurable_object_name)
-              configurable_object.send "#{name}=", value if configurable_object.respond_to?("#{name}=")
-            end
+            ActiveRecord::Encryption.config.send "#{name}=", value if ActiveRecord::Encryption.config.respond_to?("#{name}=")
+          end
+
+          ActiveRecord::Encryption.reset_default_context
+
+          properties.each do |name, value|
+            ActiveRecord::Encryption.context.send "#{name}=", value if ActiveRecord::Encryption.context.respond_to?("#{name}=")
           end
         end
 
         # Register callback to be invoked when an encrypted attribute is declared.
         #
-        # === Example:
+        # === Example
         #
         #   ActiveRecord::Encryption.on_encrypted_attribute_declared do |klass, attribute_name|
         #     ...
@@ -47,12 +52,6 @@ module ActiveRecord
         def encrypted_attribute_was_declared(klass, name) # :nodoc:
           self.encrypted_attribute_declaration_listeners&.each do |block|
             block.call(klass, name)
-          end
-        end
-
-        def install_auto_filtered_parameters(application) # :nodoc:
-          ActiveRecord::Encryption.on_encrypted_attribute_declared do |klass, encrypted_attribute_name|
-            application.config.filter_parameters << encrypted_attribute_name unless ActiveRecord::Encryption.config.excluded_from_filter_parameters.include?(name)
           end
         end
       end

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "active_support/core_ext/object/blank"
-
 module ActiveSupport
   class Duration
     # Serializes duration to string according to ISO 8601 Duration format.
@@ -52,7 +50,7 @@ module ActiveSupport
         end
 
         def week_mixed_with_date?(parts)
-          parts.key?(:weeks) && (parts.keys & DATE_COMPONENTS).any?
+          parts.key?(:weeks) && parts.keys.intersect?(DATE_COMPONENTS)
         end
 
         def format_seconds(seconds)

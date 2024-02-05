@@ -7,8 +7,6 @@ module ActionCable
     module Broadcasting
       extend ActiveSupport::Concern
 
-      delegate :broadcasting_for, :broadcast_to, to: :class
-
       module ClassMethods
         # Broadcast a hash to a unique broadcasting for this <tt>model</tt> in this channel.
         def broadcast_to(model, message)
@@ -25,16 +23,25 @@ module ActionCable
           serialize_broadcasting([ channel_name, model ])
         end
 
-        def serialize_broadcasting(object) # :nodoc:
-          case
-          when object.is_a?(Array)
-            object.map { |m| serialize_broadcasting(m) }.join(":")
-          when object.respond_to?(:to_gid_param)
-            object.to_gid_param
-          else
-            object.to_param
+        private
+          def serialize_broadcasting(object) # :nodoc:
+            case
+            when object.is_a?(Array)
+              object.map { |m| serialize_broadcasting(m) }.join(":")
+            when object.respond_to?(:to_gid_param)
+              object.to_gid_param
+            else
+              object.to_param
+            end
           end
-        end
+      end
+
+      def broadcasting_for(model)
+        self.class.broadcasting_for(model)
+      end
+
+      def broadcast_to(model, message)
+        self.class.broadcast_to(model, message)
       end
     end
   end

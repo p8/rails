@@ -3,7 +3,7 @@
 require "active_support/core_ext/string/inquiry"
 
 module ActiveRecord
-  # == Delegated types
+  # = Delegated types
   #
   # Class hierarchies can map to relational database tables in many ways. Active Record, for example, offers
   # purely abstract classes, where the superclass doesn't persist any attributes, and single-table inheritance,
@@ -136,7 +136,22 @@ module ActiveRecord
   #     end
   #   end
   #
-  # Now you can list a bunch of entries, call +Entry#title+, and polymorphism will provide you with the answer.
+  # Now you can list a bunch of entries, call <tt>Entry#title</tt>, and polymorphism will provide you with the answer.
+  #
+  # == Nested \Attributes
+  #
+  # Enabling nested attributes on a delegated_type association allows you to
+  # create the entry and message in one go:
+  #
+  #   class Entry < ApplicationRecord
+  #     delegated_type :entryable, types: %w[ Message Comment ]
+  #     accepts_nested_attributes_for :entryable
+  #   end
+  #
+  #   params = { entry: { entryable_type: 'Message', entryable_attributes: { subject: 'Smiling' } } }
+  #   entry = Entry.create(params[:entry])
+  #   entry.entryable.id # => 2
+  #   entry.entryable.subject # => 'Smiling'
   module DelegatedType
     # Defines this as a class that'll delegate its type for the passed +role+ to the class references in +types+.
     # That'll create a polymorphic +belongs_to+ relationship to that +role+, and it'll add all the delegated
@@ -177,6 +192,11 @@ module ActiveRecord
     #   +role+ with an "_id" suffix. So a class that defines a
     #   <tt>delegated_type :entryable, types: %w[ Message Comment ]</tt> association will use "entryable_id" as
     #   the default <tt>:foreign_key</tt>.
+    # [:foreign_type]
+    #   Specify the column used to store the associated object's type. By default this is inferred to be the passed
+    #   +role+ with a "_type" suffix. A class that defines a
+    #   <tt>delegated_type :entryable, types: %w[ Message Comment ]</tt> association will use "entryable_type" as
+    #   the default <tt>:foreign_type</tt>.
     # [:primary_key]
     #   Specify the method that returns the primary key of associated object used for the convenience methods.
     #   By default this is +id+.
@@ -196,15 +216,23 @@ module ActiveRecord
     private
       def define_delegated_type_methods(role, types:, options:)
         primary_key = options[:primary_key] || "id"
-        role_type = "#{role}_type"
+        role_type = options[:foreign_type] || "#{role}_type"
         role_id   = options[:foreign_key] || "#{role}_id"
 
+        define_singleton_method "#{role}_types" do
+          types.map(&:to_s)
+        end
+
         define_method "#{role}_class" do
-          public_send("#{role}_type").constantize
+          public_send(role_type).constantize
         end
 
         define_method "#{role}_name" do
           public_send("#{role}_class").model_name.singular.inquiry
+        end
+
+        define_method "build_#{role}" do |*params|
+          public_send("#{role}=", public_send("#{role}_class").new(*params))
         end
 
         types.each do |type|

@@ -9,6 +9,36 @@ module ActiveJob
   # why the adapter was unexpectedly unable to enqueue a job.
   class EnqueueError < StandardError; end
 
+  class << self
+    # Push many jobs onto the queue at once without running enqueue callbacks.
+    # Queue adapters may communicate the enqueue status of each job by setting
+    # successfully_enqueued and/or enqueue_error on the passed-in job instances.
+    def perform_all_later(*jobs)
+      jobs.flatten!
+      jobs.group_by(&:queue_adapter).each do |queue_adapter, adapter_jobs|
+        instrument_enqueue_all(queue_adapter, adapter_jobs) do
+          if queue_adapter.respond_to?(:enqueue_all)
+            queue_adapter.enqueue_all(adapter_jobs)
+          else
+            adapter_jobs.each do |job|
+              job.successfully_enqueued = false
+              if job.scheduled_at
+                queue_adapter.enqueue_at(job, job.scheduled_at.to_f)
+              else
+                queue_adapter.enqueue(job)
+              end
+              job.successfully_enqueued = true
+            rescue EnqueueError => e
+              job.enqueue_error = e
+            end
+            adapter_jobs.count(&:successfully_enqueued?)
+          end
+        end
+      end
+      nil
+    end
+  end
+
   module Enqueuing
     extend ActiveSupport::Concern
 
@@ -17,7 +47,7 @@ module ActiveJob
       # Push a job onto the queue. By default the arguments must be either String,
       # Integer, Float, NilClass, TrueClass, FalseClass, BigDecimal, Symbol, Date,
       # Time, DateTime, ActiveSupport::TimeWithZone, ActiveSupport::Duration,
-      # Hash, ActiveSupport::HashWithIndifferentAccess, Array, Range or
+      # Hash, ActiveSupport::HashWithIndifferentAccess, Array, Range, or
       # GlobalID::Identification instances, although this can be extended by adding
       # custom serializers.
       #
@@ -57,15 +87,12 @@ module ActiveJob
     #    my_job_instance.enqueue wait_until: Date.tomorrow.midnight
     #    my_job_instance.enqueue priority: 10
     def enqueue(options = {})
-      self.scheduled_at = options[:wait].seconds.from_now.to_f if options[:wait]
-      self.scheduled_at = options[:wait_until].to_f if options[:wait_until]
-      self.queue_name   = self.class.queue_name_from_part(options[:queue]) if options[:queue]
-      self.priority     = options[:priority].to_i if options[:priority]
+      set(options)
       self.successfully_enqueued = false
 
       run_callbacks :enqueue do
         if scheduled_at
-          queue_adapter.enqueue_at self, scheduled_at
+          queue_adapter.enqueue_at self, scheduled_at.to_f
         else
           queue_adapter.enqueue self
         end

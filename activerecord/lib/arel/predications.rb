@@ -39,7 +39,11 @@ module Arel # :nodoc: all
         self.in([])
       elsif open_ended?(other.begin)
         if open_ended?(other.end)
-          not_in([])
+          if infinity?(other.begin) == 1 || infinity?(other.end) == -1
+            self.in([])
+          else
+            not_in([])
+          end
         elsif other.exclude_end?
           lt(other.end)
         else
@@ -49,6 +53,8 @@ module Arel # :nodoc: all
         gteq(other.begin)
       elsif other.exclude_end?
         gteq(other.begin).and(lt(other.end))
+      elsif other.begin == other.end
+        eq(other.begin)
       else
         left = quoted_node(other.begin)
         right = quoted_node(other.end)
@@ -80,7 +86,11 @@ module Arel # :nodoc: all
         not_in([])
       elsif open_ended?(other.begin)
         if open_ended?(other.end)
-          self.in([])
+          if infinity?(other.begin) == 1 || infinity?(other.end) == -1
+            not_in([])
+          else
+            self.in([])
+          end
         elsif other.exclude_end?
           gteq(other.end)
         else

@@ -2,12 +2,11 @@
 
 require "active_support/notifications/instrumenter"
 require "active_support/notifications/fanout"
-require "active_support/per_thread_registry"
 
 module ActiveSupport
-  # = Notifications
+  # = \Notifications
   #
-  # <tt>ActiveSupport::Notifications</tt> provides an instrumentation API for
+  # +ActiveSupport::Notifications+ provides an instrumentation API for
   # Ruby.
   #
   # == Instrumenters
@@ -30,6 +29,16 @@ module ActiveSupport
   # You can consume those events and the information they provide by registering
   # a subscriber.
   #
+  #   ActiveSupport::Notifications.subscribe('render') do |event|
+  #     event.name          # => "render"
+  #     event.duration      # => 10 (in milliseconds)
+  #     event.payload       # => { extra: :information }
+  #     event.allocations   # => 1826 (objects)
+  #   end
+  #
+  #  +Event+ objects record CPU time and allocations. If you don't need this
+  #  it's also possible to pass a block that accepts five arguments:
+  #
   #   ActiveSupport::Notifications.subscribe('render') do |name, start, finish, id, payload|
   #     name    # => String, name of the event (such as 'render' from above)
   #     start   # => Time, when the instrumented block started execution
@@ -43,20 +52,18 @@ module ActiveSupport
   #
   #   ActiveSupport::Notifications.monotonic_subscribe('render') do |name, start, finish, id, payload|
   #     name    # => String, name of the event (such as 'render' from above)
-  #     start   # => Monotonic time, when the instrumented block started execution
-  #     finish  # => Monotonic time, when the instrumented block ended execution
+  #     start   # => Float, monotonic time when the instrumented block started execution
+  #     finish  # => Float, monotonic time when the instrumented block ended execution
   #     id      # => String, unique ID for the instrumenter that fired the event
   #     payload # => Hash, the payload
   #   end
-  #
-  # The +start+ and +finish+ values above represent monotonic time.
   #
   # For instance, let's store all "render" events in an array:
   #
   #   events = []
   #
-  #   ActiveSupport::Notifications.subscribe('render') do |*args|
-  #     events << ActiveSupport::Notifications::Event.new(*args)
+  #   ActiveSupport::Notifications.subscribe('render') do |event|
+  #     events << event
   #   end
   #
   # That code returns right away, you are just subscribing to "render" events.
@@ -67,14 +74,10 @@ module ActiveSupport
   #   end
   #
   #   event = events.first
-  #   event.name      # => "render"
-  #   event.duration  # => 10 (in milliseconds)
-  #   event.payload   # => { extra: :information }
-  #
-  # The block in the <tt>subscribe</tt> call gets the name of the event, start
-  # timestamp, end timestamp, a string with a unique identifier for that event's instrumenter
-  # (something like "535801666f04d0298cd6"), and a hash with the payload, in
-  # that order.
+  #   event.name          # => "render"
+  #   event.duration      # => 10 (in milliseconds)
+  #   event.payload       # => { extra: :information }
+  #   event.allocations   # => 1826 (objects)
   #
   # If an exception happens during that particular instrumentation the payload will
   # have a key <tt>:exception</tt> with an array of two elements as value: a string with
@@ -85,7 +88,7 @@ module ActiveSupport
   #   event.payload[:exception]         # => ["ArgumentError", "Invalid value"]
   #   event.payload[:exception_object]  # => #<ArgumentError: Invalid value>
   #
-  # As the earlier example depicts, the class <tt>ActiveSupport::Notifications::Event</tt>
+  # As the earlier example depicts, the class ActiveSupport::Notifications::Event
   # is able to take the arguments as they come and provide an object-oriented
   # interface to that data.
   #
@@ -139,7 +142,7 @@ module ActiveSupport
   # You can subscribe to some event temporarily while some block runs. For
   # example, in
   #
-  #   callback = lambda {|*args| ... }
+  #   callback = lambda {|event| ... }
   #   ActiveSupport::Notifications.subscribed(callback, "sql.active_record") do
   #     ...
   #   end
@@ -162,7 +165,7 @@ module ActiveSupport
   #
   # The +subscribe+ method returns a subscriber object:
   #
-  #   subscriber = ActiveSupport::Notifications.subscribe("render") do |*args|
+  #   subscriber = ActiveSupport::Notifications.subscribe("render") do |event|
   #     ...
   #   end
   #
@@ -215,11 +218,15 @@ module ActiveSupport
       # You can subscribe to events by passing a String to match exact event
       # names, or by passing a Regexp to match all events that match a pattern.
       #
-      #   ActiveSupport::Notifications.subscribe(/render/) do |*args|
-      #     @event = ActiveSupport::Notifications::Event.new(*args)
+      # If the block passed to the method only takes one argument,
+      # it will yield an +Event+ object to the block:
+      #
+      #   ActiveSupport::Notifications.subscribe(/render/) do |event|
+      #     @event = event
       #   end
       #
-      # The +block+ will receive five parameters with information about the event:
+      # Otherwise the +block+ will receive five arguments with information
+      # about the event:
       #
       #   ActiveSupport::Notifications.subscribe('render') do |name, start, finish, id, payload|
       #     name    # => String, name of the event (such as 'render' from above)
@@ -229,22 +236,21 @@ module ActiveSupport
       #     payload # => Hash, the payload
       #   end
       #
-      # If the block passed to the method only takes one parameter,
-      # it will yield an event object to the block:
-      #
-      #   ActiveSupport::Notifications.subscribe(/render/) do |event|
-      #     @event = event
-      #   end
-      #
       # Raises an error if invalid event name type is passed:
       #
-      #  ActiveSupport::Notifications.subscribe(:render) {|*args| ...}
-      #  #=> ArgumentError (pattern must be specified as a String, Regexp or empty)
+      #   ActiveSupport::Notifications.subscribe(:render) {|event| ...}
+      #   #=> ArgumentError (pattern must be specified as a String, Regexp or empty)
       #
       def subscribe(pattern = nil, callback = nil, &block)
         notifier.subscribe(pattern, callback, monotonic: false, &block)
       end
 
+      # Performs the same functionality as #subscribe, but the +start+ and
+      # +finish+ block arguments are in monotonic time instead of wall-clock
+      # time. Monotonic time will not jump forward or backward (due to NTP or
+      # Daylights Savings). Use +monotonic_subscribe+ when accuracy of time
+      # duration is important. For example, computing elapsed time between
+      # two events.
       def monotonic_subscribe(pattern = nil, callback = nil, &block)
         notifier.subscribe(pattern, callback, monotonic: true, &block)
       end
@@ -261,28 +267,13 @@ module ActiveSupport
       end
 
       def instrumenter
-        InstrumentationRegistry.instance.instrumenter_for(notifier)
-      end
-    end
-
-    # This class is a registry which holds all of the +Instrumenter+ objects
-    # in a particular thread local. To access the +Instrumenter+ object for a
-    # particular +notifier+, you can call the following method:
-    #
-    #   InstrumentationRegistry.instrumenter_for(notifier)
-    #
-    # The instrumenters for multiple notifiers are held in a single instance of
-    # this class.
-    class InstrumentationRegistry # :nodoc:
-      extend ActiveSupport::PerThreadRegistry
-
-      def initialize
-        @registry = {}
+        registry[notifier] ||= Instrumenter.new(notifier)
       end
 
-      def instrumenter_for(notifier)
-        @registry[notifier] ||= Instrumenter.new(notifier)
-      end
+      private
+        def registry
+          ActiveSupport::IsolatedExecutionState[:active_support_notifications_registry] ||= {}
+        end
     end
 
     self.notifier = Fanout.new

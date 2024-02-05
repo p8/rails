@@ -6,6 +6,7 @@ require "models/developer"
 require "models/computer"
 require "models/owner"
 require "models/pet"
+require "models/cpk"
 
 class IntegrationTest < ActiveRecord::TestCase
   fixtures :companies, :developers, :owners, :pets
@@ -97,6 +98,25 @@ class IntegrationTest < ActiveRecord::TestCase
     assert_equal "Firm", Firm.to_param
   end
 
+  def test_to_param_for_a_composite_primary_key_model
+    assert_equal "1_123", Cpk::Order.new(id: [1, 123]).to_param
+  end
+
+  def test_param_delimiter_changes_delimiter_used_in_to_param
+    Cpk::Order.with(param_delimiter: ",") do
+      assert_equal("1,123", Cpk::Order.new(id: [1, 123]).to_param)
+    end
+  end
+
+  def test_param_delimiter_is_defined_per_class
+    Cpk::Order.with(param_delimiter: ",") do
+      Cpk::Book.with(param_delimiter: ";") do
+        assert_equal("1,123", Cpk::Order.new(id: [1, 123]).to_param)
+        assert_equal("1;123", Cpk::Book.new(id: [1, 123]).to_param)
+      end
+    end
+  end
+
   def test_cache_key_for_existing_record_is_not_timezone_dependent
     utc_key = Developer.first.cache_key
 
@@ -108,12 +128,12 @@ class IntegrationTest < ActiveRecord::TestCase
 
   def test_cache_key_format_for_existing_record_with_updated_at
     dev = Developer.first
-    assert_equal "developers/#{dev.id}-#{dev.updated_at.utc.to_s(:usec)}", dev.cache_key
+    assert_equal "developers/#{dev.id}-#{dev.updated_at.utc.to_fs(:usec)}", dev.cache_key
   end
 
   def test_cache_key_format_for_existing_record_with_updated_at_and_custom_cache_timestamp_format
     dev = CachedDeveloper.first
-    assert_equal "cached_developers/#{dev.id}-#{dev.updated_at.utc.to_s(:number)}", dev.cache_key
+    assert_equal "cached_developers/#{dev.id}-#{dev.updated_at.utc.to_fs(:number)}", dev.cache_key
   end
 
   def test_cache_key_changes_when_child_touched
@@ -138,19 +158,19 @@ class IntegrationTest < ActiveRecord::TestCase
   def test_cache_key_for_updated_on
     dev = Developer.first
     dev.updated_at = nil
-    assert_equal "developers/#{dev.id}-#{dev.updated_on.utc.to_s(:usec)}", dev.cache_key
+    assert_equal "developers/#{dev.id}-#{dev.updated_on.utc.to_fs(:usec)}", dev.cache_key
   end
 
   def test_cache_key_for_newer_updated_at
     dev = Developer.first
     dev.updated_at += 3600
-    assert_equal "developers/#{dev.id}-#{dev.updated_at.utc.to_s(:usec)}", dev.cache_key
+    assert_equal "developers/#{dev.id}-#{dev.updated_at.utc.to_fs(:usec)}", dev.cache_key
   end
 
   def test_cache_key_for_newer_updated_on
     dev = Developer.first
     dev.updated_on += 3600
-    assert_equal "developers/#{dev.id}-#{dev.updated_on.utc.to_s(:usec)}", dev.cache_key
+    assert_equal "developers/#{dev.id}-#{dev.updated_on.utc.to_fs(:usec)}", dev.cache_key
   end
 
   def test_cache_key_format_is_precise_enough

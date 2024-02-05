@@ -53,14 +53,20 @@ module ActiveRecord
           end
 
           def schema_precision(column)
-            super unless /\A(?:date)?time(?:stamp)?\b/.match?(column.sql_type) && column.precision == 0
+            if /\Atime(?:stamp)?\b/.match?(column.sql_type) && column.precision == 0
+              nil
+            elsif column.type == :datetime
+              column.precision == 0 ? "nil" : super
+            else
+              super
+            end
           end
 
           def schema_collation(column)
             if column.collation
               @table_collation_cache ||= {}
               @table_collation_cache[table_name] ||=
-                @connection.exec_query("SHOW TABLE STATUS LIKE #{@connection.quote(table_name)}", "SCHEMA").first["Collation"]
+                @connection.internal_exec_query("SHOW TABLE STATUS LIKE #{@connection.quote(table_name)}", "SCHEMA").first["Collation"]
               column.collation.inspect if column.collation != @table_collation_cache[table_name]
             end
           end

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require "uri"
 require "active_support/core_ext/enumerable"
+require "active_support/core_ext/hash/reverse_merge"
 
 module ActiveRecord
   class DatabaseConfigurations
@@ -23,8 +25,7 @@ module ActiveRecord
       def initialize(url)
         raise "Database URL cannot be empty" if url.blank?
         @uri     = uri_parser.parse(url)
-        @adapter = @uri.scheme && @uri.scheme.tr("-", "_")
-        @adapter = "postgresql" if @adapter == "postgres"
+        @adapter = resolved_adapter
 
         if @uri.opaque
           @uri.opaque, @query = @uri.opaque.split("?", 2)
@@ -76,6 +77,12 @@ module ActiveRecord
               host: uri.hostname
             )
           end
+        end
+
+        def resolved_adapter
+          adapter = uri.scheme && @uri.scheme.tr("-", "_")
+          adapter = ActiveRecord.protocol_adapters[adapter] || adapter
+          adapter
         end
 
         # Returns name of the database.

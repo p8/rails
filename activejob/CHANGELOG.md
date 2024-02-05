@@ -1,65 +1,25 @@
-## Rails 7.0.0.alpha2 (September 15, 2021) ##
+*   Do not trigger immediate loading of `ActiveJob::Base` when loading `ActiveJob::TestHelper`.
 
-*   No changes.
+    *Maxime Réty*
 
+*   Preserve the serialized timezone when deserializing `ActiveSupport::TimeWithZone` arguments.
 
-## Rails 7.0.0.alpha1 (September 15, 2021) ##
+    *Joshua Young*
 
-*   Allow a job to retry indefinitely
+*   Remove deprecated `:exponentially_longer` value for the `:wait` in `retry_on`.
 
-    The `attempts` parameter of the `retry_on` method now accepts the
-    symbol reference `:unlimited` in addition to a specific number of retry
-    attempts to allow a developer to specify that a job should retry
-    forever until it succeeds.
+    *Rafael Mendonça França*
 
-        class MyJob < ActiveJob::Base
-          retry_on(AlwaysRetryException, attempts: :unlimited)
+*   Remove deprecated support to set numeric values to `scheduled_at` attribute.
 
-          # the actual job code
-        end
+    *Rafael Mendonça França*
 
-    *Daniel Morton*
+*   Deprecate `Rails.application.config.active_job.use_big_decimal_serialize`.
 
-*   Added possibility to check on `:priority` in test helper methods
-    `assert_enqueued_with` and `assert_performed_with`.
+    *Rafael Mendonça França*
 
-    *Wojciech Wnętrzak*
+*   Remove deprecated primitive serializer for `BigDecimal` arguments.
 
-*   OpenSSL constants are now used for Digest computations.
+    *Rafael Mendonça França*
 
-    *Dirkjan Bussink*
-
-*   Add a Serializer for the Range class.
-
-    This should allow things like `MyJob.perform_later(range: 1..100)`.
-
-*   Communicate enqueue failures to callers of `perform_later`.
-
-    `perform_later` can now optionally take a block which will execute after
-    the adapter attempts to enqueue the job. The block will receive the job
-    instance as an argument even if the enqueue was not successful.
-    Additionally, `ActiveJob` adapters now have the ability to raise an
-    `ActiveJob::EnqueueError` which will be caught and stored in the job
-    instance so code attempting to enqueue jobs can inspect any raised
-    `EnqueueError` using the block.
-
-        MyJob.perform_later do |job|
-          unless job.successfully_enqueued?
-            if job.enqueue_error&.message == "Redis was unavailable"
-              # invoke some code that will retry the job after a delay
-            end
-          end
-        end
-
-    *Daniel Morton*
-
-*   Don't log rescuable exceptions defined with `rescue_from`.
-
-    *Hu Hailin*
-
-*   Allow `rescue_from` to rescue all exceptions.
-
-    *Adrianna Chang*, *Étienne Barrié*
-
-
-Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/activejob/CHANGELOG.md) for previous changes.
+Please check [7-1-stable](https://github.com/rails/rails/blob/7-1-stable/activejob/CHANGELOG.md) for previous changes.

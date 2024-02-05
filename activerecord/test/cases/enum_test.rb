@@ -70,6 +70,7 @@ class EnumTest < ActiveRecord::TestCase
     assert_equal "visible", @book.author_visibility
     assert_equal "visible", @book.illustrator_visibility
     assert_equal "medium", @book.difficulty
+    assert_equal "soft", @book.cover
   end
 
   test "find via scope" do
@@ -108,6 +109,7 @@ class EnumTest < ActiveRecord::TestCase
     assert_not_equal @book, Book.where(status: [written, written]).first
     assert_not_equal @book, Book.where.not(status: published).first
     assert_equal @book, Book.where.not(status: written).first
+    assert_equal @book, Book.where(cover: Book.covers[:soft]).first
   end
 
   test "find via where with symbols" do
@@ -119,6 +121,8 @@ class EnumTest < ActiveRecord::TestCase
     assert_equal @book, Book.where.not(status: :written).first
     assert_equal books(:ddd), Book.where(last_read: :forgotten).first
     assert_nil Book.where(status: :prohibited).first
+    assert_equal @book, Book.where(cover: :soft).first
+    assert_equal @book, Book.where.not(cover: :hard).first
   end
 
   test "find via where with strings" do
@@ -145,6 +149,8 @@ class EnumTest < ActiveRecord::TestCase
 
     enabled = Book.boolean_statuses[:enabled].to_s
     assert_equal book, Book.where(boolean_status: enabled).last
+    assert_equal @book, Book.where(cover: "soft").first
+    assert_equal @book, Book.where.not(cover: "hard").first
   end
 
   test "build from scope" do
@@ -170,11 +176,15 @@ class EnumTest < ActiveRecord::TestCase
     assert_predicate @book, :in_english?
     @book.author_visibility_visible!
     assert_predicate @book, :author_visibility_visible?
+    @book.hard!
+    assert_predicate @book, :hard?
   end
 
   test "update by setter" do
     @book.update! status: :written
     assert_predicate @book, :written?
+    @book.update! cover: :hard
+    assert_predicate @book, :hard?
   end
 
   test "enum methods are overwritable" do
@@ -185,11 +195,15 @@ class EnumTest < ActiveRecord::TestCase
   test "direct assignment" do
     @book.status = :written
     assert_predicate @book, :written?
+    @book.cover = :hard
+    assert_predicate @book, :hard?
   end
 
   test "assign string value" do
     @book.status = "written"
     assert_predicate @book, :written?
+    @book.cover = "hard"
+    assert_predicate @book, :hard?
   end
 
   test "enum changed attributes" do
@@ -299,6 +313,44 @@ class EnumTest < ActiveRecord::TestCase
     assert_equal "'unknown' is not a valid status", e.message
   end
 
+  test "validation with 'validate: true' option" do
+    klass = Class.new(ActiveRecord::Base) do
+      def self.name; "Book"; end
+      enum :status, [:proposed, :written], validate: true
+    end
+
+    valid_book = klass.new(status: "proposed")
+    assert_predicate valid_book, :valid?
+
+    valid_book = klass.new(status: "written")
+    assert_predicate valid_book, :valid?
+
+    invalid_book = klass.new(status: nil)
+    assert_not_predicate invalid_book, :valid?
+
+    invalid_book = klass.new(status: "unknown")
+    assert_not_predicate invalid_book, :valid?
+  end
+
+  test "validation with 'validate: hash' option" do
+    klass = Class.new(ActiveRecord::Base) do
+      def self.name; "Book"; end
+      enum :status, [:proposed, :written], validate: { allow_nil: true }
+    end
+
+    valid_book = klass.new(status: "proposed")
+    assert_predicate valid_book, :valid?
+
+    valid_book = klass.new(status: "written")
+    assert_predicate valid_book, :valid?
+
+    valid_book = klass.new(status: nil)
+    assert_predicate valid_book, :valid?
+
+    invalid_book = klass.new(status: "unknown")
+    assert_not_predicate invalid_book, :valid?
+  end
+
   test "NULL values from database should be casted to nil" do
     Book.where(id: @book.id).update_all("status = NULL")
     assert_nil @book.reload.status
@@ -390,11 +442,38 @@ class EnumTest < ActiveRecord::TestCase
     e = assert_raises(ArgumentError) do
       Class.new(ActiveRecord::Base) do
         self.table_name = "books"
+        enum :status
+      end
+    end
+
+    assert_match(/must not be empty\.$/, e.message)
+
+    e = assert_raises(ArgumentError) do
+      Class.new(ActiveRecord::Base) do
+        self.table_name = "books"
+        enum(:status, {}, **{})
+      end
+    end
+
+    assert_match(/must not be empty\.$/, e.message)
+
+    e = assert_raises(ArgumentError) do
+      Class.new(ActiveRecord::Base) do
+        self.table_name = "books"
+        enum :status, []
+      end
+    end
+
+    assert_match(/must not be empty\.$/, e.message)
+
+    e = assert_raises(ArgumentError) do
+      Class.new(ActiveRecord::Base) do
+        self.table_name = "books"
         enum status: [proposed: 1, written: 2, published: 3]
       end
     end
 
-    assert_match(/must be either a hash, an array of symbols, or an array of strings./, e.message)
+    assert_match(/must only contain symbols or strings\.$/, e.message)
 
     e = assert_raises(ArgumentError) do
       Class.new(ActiveRecord::Base) do
@@ -403,7 +482,7 @@ class EnumTest < ActiveRecord::TestCase
       end
     end
 
-    assert_match(/Enum label name must not be blank/, e.message)
+    assert_match(/must not contain a blank name\.$/, e.message)
 
     e = assert_raises(ArgumentError) do
       Class.new(ActiveRecord::Base) do
@@ -412,7 +491,16 @@ class EnumTest < ActiveRecord::TestCase
       end
     end
 
-    assert_match(/Enum label name must not be blank/, e.message)
+    assert_match(/must not contain a blank name\.$/, e.message)
+
+    e = assert_raises(ArgumentError) do
+      Class.new(ActiveRecord::Base) do
+        self.table_name = "books"
+        enum status: Object.new
+      end
+    end
+
+    assert_match(/must be either a non-empty hash or an array\.$/, e.message)
   end
 
   test "reserved enum names" do
@@ -447,7 +535,8 @@ class EnumTest < ActiveRecord::TestCase
       :save,     # generates #save!, which conflicts with an AR method
       :proposed, # same value as an existing enum
       :public, :private, :protected, # some important methods on Module and Class
-      :name, :parent, :superclass
+      :name, :superclass,
+      :id        # conflicts with AR querying
     ]
 
     conflicts.each_with_index do |value, i|
@@ -455,6 +544,16 @@ class EnumTest < ActiveRecord::TestCase
         klass.class_eval { enum "status_#{i}" => [value] }
       end
       assert_match(/You tried to define an enum named .* on the model/, e.message)
+    end
+  end
+
+  test "can use id as a value with a prefix or suffix" do
+    assert_nothing_raised do
+      Class.new(ActiveRecord::Base) do
+        self.table_name = "books"
+        enum status_1: [:id], _prefix: true
+        enum status_2: [:id], _suffix: true
+      end
     end
   end
 
@@ -516,7 +615,6 @@ class EnumTest < ActiveRecord::TestCase
       enum status: [:proposed, :written]
       validates_inclusion_of :status, in: ["written"]
     end
-    klass.delete_all
     invalid_book = klass.new(status: "proposed")
     assert_not_predicate invalid_book, :valid?
     valid_book = klass.new(status: "written")
@@ -687,8 +785,8 @@ class EnumTest < ActiveRecord::TestCase
 
   test "uses default status when no status is provided in fixtures" do
     book = books(:tlg)
-    assert book.proposed?, "expected fixture to default to proposed status"
-    assert book.in_english?, "expected fixture to default to english language"
+    assert_predicate book, :proposed?, "expected fixture to default to proposed status"
+    assert_predicate book, :in_english?, "expected fixture to default to english language"
   end
 
   test "uses default value from database on initialization" do
@@ -955,5 +1053,36 @@ class EnumTest < ActiveRecord::TestCase
     assert_empty(logger.logged(:warn))
   ensure
     ActiveRecord::Base.logger = old_logger
+  end
+
+  test "raises for attributes with undeclared type" do
+    klass = Class.new(Book) do
+      enum typeless_genre: [:adventure, :comic]
+    end
+
+    error = assert_raises(RuntimeError) do
+      klass.type_for_attribute(:typeless_genre)
+    end
+    assert_match "Undeclared attribute type for enum 'typeless_genre'", error.message
+  end
+
+  test "supports attributes declared with a explicit type" do
+    klass = Class.new(Book) do
+      attribute :my_genre, :integer
+      enum my_genre: [:adventure, :comic]
+    end
+
+    assert_equal :integer, klass.type_for_attribute(:my_genre).type
+  end
+
+  test "default methods can be disabled by :_instance_methods" do
+    klass = Class.new(ActiveRecord::Base) do
+      self.table_name = "books"
+      enum status: [:proposed, :written], _instance_methods: false
+    end
+
+    instance = klass.new
+    assert_raises(NoMethodError) { instance.proposed? }
+    assert_raises(NoMethodError) { instance.proposed! }
   end
 end

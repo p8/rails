@@ -44,6 +44,20 @@ class UpdateAllTest < ActiveRecord::TestCase
     assert_equal "Empty list of attributes to change", error.message
   end
 
+  def test_update_all_with_group_by
+    minimum_comments_count = 2
+
+    Post.most_commented(minimum_comments_count).update_all(title: "ig")
+    posts = Post.most_commented(minimum_comments_count).all.to_a
+
+    assert_operator posts.length, :>, 0
+    assert posts.all? { |post| post.comments.length >= minimum_comments_count }
+    assert posts.all? { |post| "ig" == post.title }
+
+    post = Post.joins(:comments).group("posts.id").having("count(comments.id) < #{minimum_comments_count}").first
+    assert_not_equal "ig", post.title
+  end
+
   def test_update_all_with_joins
     pets = Pet.joins(:toys).where(toys: { name: "Bone" })
 
@@ -52,7 +66,7 @@ class UpdateAllTest < ActiveRecord::TestCase
       assert_equal pets.count, pets.update_all(name: "Bob")
     end
 
-    if current_adapter?(:Mysql2Adapter)
+    if current_adapter?(:Mysql2Adapter, :TrilogyAdapter)
       assert_no_match %r/SELECT DISTINCT #{Regexp.escape(Pet.connection.quote_table_name("pets.pet_id"))}/, sqls.last
     else
       assert_match %r/SELECT #{Regexp.escape(Pet.connection.quote_table_name("pets.pet_id"))}/, sqls.last
@@ -308,7 +322,7 @@ class UpdateAllTest < ActiveRecord::TestCase
         assert_not test_update_with_order_succeeds.call("id ASC")
       else
         # test that we're failing because the current Arel's engine doesn't support UPDATE ORDER BY queries is using subselects instead
-        assert_sql(/\AUPDATE .+ \(SELECT .* ORDER BY id DESC\)\z/i) do
+        assert_queries_match(/\AUPDATE .+ \(SELECT .* ORDER BY id DESC\)\z/i) do
           test_update_with_order_succeeds.call("id DESC")
         end
       end

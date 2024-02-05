@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "cases/encryption/helper"
+require "base64"
 
 class ActiveRecord::Encryption::MessageSerializerTest < ActiveRecord::EncryptionTestCase
   setup do
@@ -22,10 +23,34 @@ class ActiveRecord::Encryption::MessageSerializerTest < ActiveRecord::Encryption
   end
 
   test "won't load classes from JSON" do
-    class_loading_payload = '{"json_class": "MessageSerializerTest::SomeClassThatWillNeverExist"}'
+    class_loading_payload = JSON.dump({ p: ::Base64.strict_encode64("Some payload"), json_class: "MessageSerializerTest::SomeClassThatWillNeverExist" })
 
     assert_raises(ArgumentError) { JSON.load(class_loading_payload) }
     assert_nothing_raised { @serializer.load(class_loading_payload) }
+  end
+
+  test "detects random JSON data and raises a decryption error" do
+    assert_raises ActiveRecord::Encryption::Errors::Decryption do
+      @serializer.load JSON.dump("hey there")
+    end
+  end
+
+  test "detects random JSON hashes and raises a decryption error" do
+    assert_raises ActiveRecord::Encryption::Errors::Decryption do
+      @serializer.load JSON.dump({ some: "other data" })
+    end
+  end
+
+  test "detects JSON hashes with a 'p' key that is not encoded in base64" do
+    assert_raises ActiveRecord::Encryption::Errors::Encoding do
+      @serializer.load JSON.dump({ p: "some data not encoded" })
+    end
+  end
+
+  test "raises a TypeError when trying to deserialize other data types" do
+    assert_raises TypeError do
+      @serializer.load(:it_can_only_deserialize_strings)
+    end
   end
 
   test "raises ForbiddenClass when trying to serialize other data types" do

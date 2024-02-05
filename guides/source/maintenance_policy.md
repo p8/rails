@@ -9,6 +9,9 @@ follows, all versions, except for security releases, in `X.Y.Z`, format.
 
 --------------------------------------------------------------------------------
 
+Versioning
+------------
+
 Rails follows a shifted version of [semver](https://semver.org/):
 
 **Patch `Z`**
@@ -37,14 +40,20 @@ in point releases.
 Bug Fixes
 ---------
 
-Only the latest release series will receive bug fixes. When enough bugs are
-fixed and its deemed worthy to release a new gem, this is the branch it happens
-from.
+Only the latest release series will receive bug fixes. Bug fixes are typically
+added to the main branch, and backported to the x-y-stable branch of the latest
+release series if there is sufficient need. When enough bugs fixes have been added
+to an x-y-stable branch, a new patch release is built from it. For example, a
+theoretical 1.2.2 patch release would be built from the 1-2-stable branch.
 
 In special situations, where someone from the Core Team agrees to support more series,
 they are included in the list of supported series.
 
-**Currently included series:** `7.0.Z`.
+For unsupported series, bug fixes may coincidentally land in a stable branch,
+but won't be released in an official version. It is recommended to point your
+application at the stable branch using Git for unsupported versions.
+
+**Currently included series:** `7.2.Z`.
 
 Security Issues
 ---------------
@@ -64,7 +73,12 @@ non-security related bugs resulting from a security patch may be published on a
 release's x-y-stable branch, and will only be released as a new gem in
 accordance with the Bug Fixes policy.
 
-**Currently included series:** `7.0.Z`, `6.1.Z`, `5.2.Z`.
+Security releases are cut from the last security release branch/tag. Otherwise
+there could be breaking changes in the security release. A security release
+should only contain the changes needed to ensure the app is secure so that it's
+easier for applications to remain upgraded.
+
+**Currently included series:** `7.2.Z`, `7.1.Z`.
 
 Severe Security Issues
 ----------------------
@@ -73,13 +87,23 @@ For severe security issues all releases in the current major series, and also th
 last release in the previous major series will receive patches and new versions. The
 classification of the security issue is judged by the core team.
 
-**Currently included series:** `7.0.Z`, `6.1.Z`, `6.0.Z`, `5.2.Z`.
+**Currently included series:** `7.2.Z`, `7.1.Z`, `7.0.Z`, `6.1.Z`.
 
 Unsupported Release Series
 --------------------------
 
 When a release series is no longer supported, it's your own responsibility to
 deal with bugs and security issues. We may provide backports of the fixes and
-publish them to git, however there will be no new versions released. If you are
-not comfortable maintaining your own versions, you should upgrade to a
-supported version.
+merge them, however there will be no new versions released. We
+recommend to point your application at the stable branch using Git. If you are
+not comfortable maintaining your own versions, you should upgrade to a supported
+version.
+
+npm Packages
+------------
+
+Due to a constraint with npm, we are unable to use the 4th digit for security
+releases of [npm packages][] provided by Rails. This means that instead of the
+equivalent gem version `7.0.1.4`, the npm package will be versioned `7.0.1-4`.
+
+[npm packages]: https://www.npmjs.com/org/rails

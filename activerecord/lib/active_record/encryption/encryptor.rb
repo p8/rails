@@ -6,17 +6,25 @@ require "active_support/core_ext/numeric"
 
 module ActiveRecord
   module Encryption
-    # An encryptor exposes the encryption API that +ActiveRecord::Encryption::EncryptedAttributeType+
+    # An encryptor exposes the encryption API that ActiveRecord::Encryption::EncryptedAttributeType
     # uses for encrypting and decrypting attribute values.
     #
-    # It interacts with a +KeyProvider+ for getting the keys, and delegate to
-    # +ActiveRecord::Encryption::Cipher+ the actual encryption algorithm.
+    # It interacts with a KeyProvider for getting the keys, and delegate to
+    # ActiveRecord::Encryption::Cipher the actual encryption algorithm.
     class Encryptor
+      # === Options
+      #
+      # * <tt>:compress</tt> - Boolean indicating whether records should be compressed before encryption.
+      #   Defaults to +true+.
+      def initialize(compress: true)
+        @compress = compress
+      end
+
       # Encrypts +clean_text+ and returns the encrypted result
       #
       # Internally, it will:
       #
-      # 1. Create a new +ActiveRecord::Encryption::Message+
+      # 1. Create a new ActiveRecord::Encryption::Message
       # 2. Compress and encrypt +clean_text+ as the message payload
       # 3. Serialize it with +ActiveRecord::Encryption.message_serializer+ (+ActiveRecord::Encryption::SafeMarshal+
       #    by default)
@@ -26,10 +34,10 @@ module ActiveRecord
       #
       # [:key_provider]
       #   Key provider to use for the encryption operation. It will default to
-      #   +ActiveRecord::Encryption.key_provider+ when not provided
+      #   +ActiveRecord::Encryption.key_provider+ when not provided.
       #
       # [:cipher_options]
-      #   +Cipher+-specific options that will be passed to the Cipher configured in
+      #   Cipher-specific options that will be passed to the Cipher configured in
       #   +ActiveRecord::Encryption.cipher+
       def encrypt(clear_text, key_provider: default_key_provider, cipher_options: {})
         clear_text = force_encoding_if_needed(clear_text) if cipher_options[:deterministic]
@@ -47,7 +55,7 @@ module ActiveRecord
       #   +ActiveRecord::Encryption.key_provider+ when not provided
       #
       # [:cipher_options]
-      #   +Cipher+-specific options that will be passed to the Cipher configured in
+      #   Cipher-specific options that will be passed to the Cipher configured in
       #   +ActiveRecord::Encryption.cipher+
       def decrypt(encrypted_text, key_provider: default_key_provider, cipher_options: {})
         message = deserialize_message(encrypted_text)
@@ -100,7 +108,6 @@ module ActiveRecord
         end
 
         def deserialize_message(message)
-          raise Errors::Encoding unless message.is_a?(String)
           serializer.load message
         rescue ArgumentError, TypeError, Errors::ForbiddenClass
           raise Errors::Encoding
@@ -112,11 +119,15 @@ module ActiveRecord
 
         # Under certain threshold, ZIP compression is actually worse that not compressing
         def compress_if_worth_it(string)
-          if string.bytesize > THRESHOLD_TO_JUSTIFY_COMPRESSION
+          if compress? && string.bytesize > THRESHOLD_TO_JUSTIFY_COMPRESSION
             [compress(string), true]
           else
             [string, false]
           end
+        end
+
+        def compress?
+          @compress
         end
 
         def compress(data)

@@ -5,8 +5,9 @@ module Arel # :nodoc: all
     class MySQL < Arel::Visitors::ToSql
       private
         def visit_Arel_Nodes_Bin(o, collector)
-          collector << "BINARY "
+          collector << "CAST("
           visit o.expr, collector
+          collector << " AS BINARY)"
         end
 
         def visit_Arel_Nodes_UnqualifiedColumn(o, collector)
@@ -58,16 +59,28 @@ module Arel # :nodoc: all
           infix_value o, collector, " NOT REGEXP "
         end
 
-        # no-op
         def visit_Arel_Nodes_NullsFirst(o, collector)
-          visit o.expr, collector
+          visit(o.expr.expr, collector) << " IS NOT NULL, "
+          visit(o.expr, collector)
+        end
+
+        def visit_Arel_Nodes_NullsLast(o, collector)
+          visit(o.expr.expr, collector) << " IS NULL, "
+          visit(o.expr, collector)
+        end
+
+        def visit_Arel_Nodes_Cte(o, collector)
+          collector << quote_table_name(o.name)
+          collector << " AS "
+          visit o.relation, collector
         end
 
         # In the simple case, MySQL allows us to place JOINs directly into the UPDATE
         # query. However, this does not allow for LIMIT, OFFSET and ORDER. To support
         # these, we must use a subquery.
         def prepare_update_statement(o)
-          if o.offset || has_join_sources?(o) && has_limit_or_offset_or_orders?(o)
+          if o.offset || has_group_by_and_having?(o) ||
+            has_join_sources?(o) && has_limit_or_offset_or_orders?(o)
             super
           else
             o

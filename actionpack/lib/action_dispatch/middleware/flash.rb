@@ -3,6 +3,8 @@
 require "active_support/core_ext/hash/keys"
 
 module ActionDispatch
+  # = Action Dispatch \Flash
+  #
   # The flash provides a way to pass temporary primitive-types (String, Array, Hash) between actions. Anything you place in the flash will be exposed
   # to the very next action and then cleared out. This is a great way of doing notices and alerts, such as a create
   # action that sets <tt>flash[:notice] = "Post successfully created"</tt> before redirecting to a display action that can
@@ -20,10 +22,11 @@ module ActionDispatch
   #     end
   #   end
   #
-  #   show.html.erb
-  #     <% if flash[:notice] %>
-  #       <div class="notice"><%= flash[:notice] %></div>
-  #     <% end %>
+  # Then in +show.html.erb+:
+  #
+  #   <% if flash[:notice] %>
+  #     <div class="notice"><%= flash[:notice] %></div>
+  #   <% end %>
   #
   # Since the +notice+ and +alert+ keys are a common idiom, convenience accessors are available:
   #
@@ -41,9 +44,9 @@ module ActionDispatch
     KEY = "action_dispatch.request.flash_hash"
 
     module RequestMethods
-      # Access the contents of the flash. Use <tt>flash["notice"]</tt> to
-      # read a notice you put there or <tt>flash["notice"] = "hello"</tt>
-      # to put a new one.
+      # Access the contents of the flash. Returns a ActionDispatch::Flash::FlashHash.
+      #
+      # See ActionDispatch::Flash for example usage.
       def flash
         flash = flash_hash
         return flash if flash
@@ -174,6 +177,8 @@ module ActionDispatch
         @flashes.key? name.to_s
       end
 
+      # Immediately deletes the single flash entry. Use this method when you
+      # want remove the message within the current action. See also #discard.
       def delete(key)
         key = key.to_s
         @discard.delete key
@@ -242,6 +247,9 @@ module ActionDispatch
       #
       #     flash.discard              # discard the entire flash at the end of the current action
       #     flash.discard(:warning)    # discard only the "warning" entry at the end of the current action
+      #
+      # Use this method when you want to display the message in the current
+      # action but not in the next one. See also #delete.
       def discard(k = nil)
         k = k.to_s if k
         @discard.merge Array(k || keys)

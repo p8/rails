@@ -4,8 +4,11 @@ module ActiveRecord
   module ConnectionAdapters
     module SQLite3
       module Quoting # :nodoc:
+        QUOTED_COLUMN_NAMES = Concurrent::Map.new # :nodoc:
+        QUOTED_TABLE_NAMES = Concurrent::Map.new # :nodoc:
+
         def quote_string(s)
-          @connection.class.quote(s)
+          ::SQLite3::Database.quote(s)
         end
 
         def quote_table_name_for_assignment(table, attr)
@@ -13,11 +16,11 @@ module ActiveRecord
         end
 
         def quote_table_name(name)
-          self.class.quoted_table_names[name] ||= super.gsub(".", "\".\"").freeze
+          QUOTED_TABLE_NAMES[name] ||= -super.gsub(".", "\".\"").freeze
         end
 
         def quote_column_name(name)
-          self.class.quoted_column_names[name] ||= %Q("#{super.gsub('"', '""')}")
+          QUOTED_COLUMN_NAMES[name] ||= %Q("#{super.gsub('"', '""')}").freeze
         end
 
         def quoted_time(value)
@@ -45,6 +48,34 @@ module ActiveRecord
           0
         end
 
+        def quote_default_expression(value, column) # :nodoc:
+          if value.is_a?(Proc)
+            value = value.call
+            if value.match?(/\A\w+\(.*\)\z/)
+              "(#{value})"
+            else
+              value
+            end
+          else
+            super
+          end
+        end
+
+        def type_cast(value) # :nodoc:
+          case value
+          when BigDecimal
+            value.to_f
+          when String
+            if value.encoding == Encoding::ASCII_8BIT
+              super(value.encode(Encoding::UTF_8))
+            else
+              super
+            end
+          else
+            super
+          end
+        end
+
         def column_name_matcher
           COLUMN_NAME
         end
@@ -58,7 +89,7 @@ module ActiveRecord
           (
             (?:
               # "table_name"."column_name" | function(one or no argument)
-              ((?:\w+\.|"\w+"\.)?(?:\w+|"\w+")) | \w+\((?:|\g<2>)\)
+              ((?:\w+\.|"\w+"\.)?(?:\w+|"\w+") | \w+\((?:|\g<2>)\))
             )
             (?:(?:\s+AS)?\s+(?:\w+|"\w+"))?
           )
@@ -71,8 +102,9 @@ module ActiveRecord
           (
             (?:
               # "table_name"."column_name" | function(one or no argument)
-              ((?:\w+\.|"\w+"\.)?(?:\w+|"\w+")) | \w+\((?:|\g<2>)\)
+              ((?:\w+\.|"\w+"\.)?(?:\w+|"\w+") | \w+\((?:|\g<2>)\))
             )
+            (?:\s+COLLATE\s+(?:\w+|"\w+"))?
             (?:\s+ASC|\s+DESC)?
           )
           (?:\s*,\s*\g<1>)*
@@ -80,22 +112,6 @@ module ActiveRecord
         /ix
 
         private_constant :COLUMN_NAME, :COLUMN_NAME_WITH_ORDER
-
-        private
-          def _type_cast(value)
-            case value
-            when BigDecimal
-              value.to_f
-            when String
-              if value.encoding == Encoding::ASCII_8BIT
-                super(value.encode(Encoding::UTF_8))
-              else
-                super
-              end
-            else
-              super
-            end
-          end
       end
     end
   end
