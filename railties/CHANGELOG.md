@@ -1,3 +1,23 @@
+*   Add `rails_app` helper for initializing a Rails app inline.
+
+    ```ruby
+      require "bundler/inline"
+
+      gemfile(true) do
+        source "https://rubygems.org"
+
+        gem "rails", github: "rails/rails", branch: "main"
+      end
+
+      require "rails/inline"
+
+      rails_app
+
+      rails :console
+    ```
+
+    *Petrik de Heus*
+
 *   Add a `SessionTestHelper` module with `sign_in_as(user)` and `sign_out` test helpers when
     running `rails g authentication`. Simplifies authentication in integration tests.
 
