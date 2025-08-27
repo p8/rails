@@ -1,3 +1,18 @@
+*   Support `:n_plus_one_only` mode on strict_loading relations.
+
+    ```ruby
+    user = User.strict_loading.first
+    user.comments.to_a
+    # => ActiveRecord::StrictLoadingViolationError
+
+    user = User.strict_loading(mode: :n_plus_one_only).first
+    user.comments.to_a
+    user.comments.first.author
+    # => ActiveRecord::StrictLoadingViolationError
+    ```
+
+    *Petrik de Heus*
+
 *   Skip calling `PG::Connection#cancel` in `cancel_any_running_query`
     when using libpq >= 18 with pg < 1.6.0, due to incompatibility.
     Rollback still runs, but may take longer.

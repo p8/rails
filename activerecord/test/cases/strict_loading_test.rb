@@ -15,7 +15,7 @@ require "models/treasure"
 require "models/pirate"
 
 class StrictLoadingTest < ActiveRecord::TestCase
-  fixtures :developers, :developers_projects, :projects, :ships
+  fixtures :computers, :developers, :developers_projects, :projects, :ships
 
   def test_strict_loading!
     developer = Developer.first
@@ -170,6 +170,31 @@ class StrictLoadingTest < ActiveRecord::TestCase
 
     assert_raises ActiveRecord::StrictLoadingViolationError do
       dev.audit_logs.to_a
+    end
+  end
+
+  def test_raises_if_strict_loading_n_plus_one_only_mode_and_lazy_loading
+    dev = Developer.strict_loading(mode: :n_plus_one_only).first
+    assert_predicate dev, :strict_loading?
+
+    assert_nothing_raised do
+      dev.computers.to_a
+    end
+
+    assert_raises ActiveRecord::StrictLoadingViolationError do
+      dev.computers.to_a.first.firm
+    end
+  end
+
+  def test_raises_if_strict_loading_n_plus_one_only_mode_and_lazy_loading2
+    devs = Developer.strict_loading(mode: :n_plus_one_only)
+
+    assert_nothing_raised do
+      devs.to_a
+    end
+
+    assert_raises ActiveRecord::StrictLoadingViolationError do
+      devs.to_a.first.computers.first.firm
     end
   end
 
@@ -425,6 +450,37 @@ class StrictLoadingTest < ActiveRecord::TestCase
 
     assert_raises ActiveRecord::StrictLoadingViolationError do
       dev.audit_logs.first
+    end
+  end
+
+  def test_raises_on_unloaded_relation_methods_if_strict_loading_n_plus_one_only_mode
+    developer = Developer.first
+    firm = Firm.create!(name: "NASA")
+    developer.projects << Project.create!(name: "Apollo", firm: firm)
+
+    developer = Developer.strict_loading(mode: :n_plus_one_only).first
+
+    assert_predicate developer, :strict_loading?
+    assert_predicate developer, :strict_loading_n_plus_one_only?
+
+    # Does not raise when loading a has_many association (:projects)
+    assert_nothing_raised do
+      developer.projects.to_a
+    end
+
+    # strict_loading is enabled for has_many associations
+    assert developer.projects.all?(&:strict_loading?)
+    assert_raises ActiveRecord::StrictLoadingViolationError do
+      developer.projects.last.firm
+    end
+
+    assert_nothing_raised do
+      developer.projects_extended_by_name.to_a
+    end
+
+    assert developer.projects_extended_by_name.all?(&:strict_loading?)
+    assert_raises ActiveRecord::StrictLoadingViolationError do
+      developer.projects_extended_by_name.last.firm
     end
   end
 

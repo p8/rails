@@ -56,7 +56,8 @@ module ActiveRecord
                             :extending, :unscope, :optimizer_hints, :annotate,
                             :with]
 
-    SINGLE_VALUE_METHODS = [:limit, :offset, :lock, :readonly, :reordering, :strict_loading,
+    SINGLE_VALUE_METHODS = [:limit, :offset, :lock, :readonly, :reordering,
+                            :strict_loading, :strict_loading_mode,
                             :reverse_order, :distinct, :create_with, :skip_query_cache]
 
     CLAUSE_METHODS = [:where, :having, :from]
@@ -1436,7 +1437,7 @@ module ActiveRecord
           preload_associations(records) unless skip_preloading_value
 
           records.each(&:readonly!) if readonly_value
-          records.each { |record| record.strict_loading!(strict_loading_value) } unless strict_loading_value.nil?
+          records.each { |record| record.strict_loading!(strict_loading_value, mode: strict_loading_mode_value) } unless strict_loading_value.nil?
 
           records
         end

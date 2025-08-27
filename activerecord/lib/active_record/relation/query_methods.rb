@@ -1322,12 +1322,23 @@ module ActiveRecord
     #   user = User.strict_loading.first
     #   user.comments.to_a
     #   # => ActiveRecord::StrictLoadingViolationError
-    def strict_loading(value = true)
-      spawn.strict_loading!(value)
+    #
+    #   user = User.strict_loading(mode: :n_plus_one_only).first
+    #   user.comments.to_a
+    #   user.comments.first.author
+    #   # => ActiveRecord::StrictLoadingViolationError
+    def strict_loading(value = true, mode: :all)
+      spawn.strict_loading!(value, mode: mode)
     end
 
-    def strict_loading!(value = true) # :nodoc:
+    def strict_loading!(value = true, mode: :all) # :nodoc:
       self.strict_loading_value = value
+      self.strict_loading_mode_value = mode
+      self
+    end
+
+    def strict_loading_mode!(mode = :all) # :nodoc:
+      self.strict_loading_mode_value = mode
       self
     end
 
