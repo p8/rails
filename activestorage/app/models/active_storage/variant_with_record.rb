@@ -15,9 +15,16 @@ class ActiveStorage::VariantWithRecord
     @blob, @variation = blob, ActiveStorage::Variation.wrap(variation)
   end
 
+  # Processes the variant if it has not been processed yet. Returns the
+  # receiving +ActiveStorage::VariantWithRecord+ instance for convenience:
   def processed
     process unless processed?
     self
+  end
+
+  # Returns true if the variant has already been processed and stored.
+  def processed?
+    record.present?
   end
 
   def image
@@ -36,10 +43,6 @@ class ActiveStorage::VariantWithRecord
   delegate :key, :url, :download, to: :image, allow_nil: true
 
   private
-    def processed?
-      record.present?
-    end
-
     def process
       transform_blob { |image| create_or_find_record(image: image) }
     end

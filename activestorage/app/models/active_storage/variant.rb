@@ -69,6 +69,11 @@ class ActiveStorage::Variant
     self
   end
 
+  # Returns true if the variant has already been processed and uploaded to the service.
+  def processed?
+    service.exist?(key)
+  end
+
   # Returns a combination key of the blob and the variation that together identifies a specific variant.
   def key
     "variants/#{blob.key}/#{OpenSSL::Digest::SHA256.hexdigest(variation.key)}"
@@ -104,10 +109,6 @@ class ActiveStorage::Variant
   end
 
   private
-    def processed?
-      service.exist?(key)
-    end
-
     def process
       blob.open do |input|
         variation.transform(input) do |output|

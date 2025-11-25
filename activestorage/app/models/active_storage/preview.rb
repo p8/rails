@@ -55,6 +55,11 @@ class ActiveStorage::Preview
     self
   end
 
+  # Returns true if the preview has been processed.
+  def processed?
+    image.attached?
+  end
+
   # Returns the blob's attached preview image.
   def image
     blob.preview_image
@@ -96,10 +101,6 @@ class ActiveStorage::Preview
   end
 
   private
-    def processed?
-      image.attached?
-    end
-
     def process
       previewer.preview(service_name: blob.service_name) do |attachable|
         ActiveRecord::Base.connected_to(role: ActiveRecord.writing_role) do
